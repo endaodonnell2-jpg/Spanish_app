@@ -36,7 +36,7 @@ if "verbs" not in st.session_state:
         ("You drink water", "Tú bebes agua")
     ]
 if "announced" not in st.session_state: st.session_state.announced = -1
-if "feedback" not in st.session_state: st.session_state.feedback = None
+if "feedback_data" not in st.session_state: st.session_state.feedback_data = None
 
 # --- 3. HELPERS ---
 def play_audio(text, lang='es'):
@@ -65,16 +65,16 @@ if st.session_state.step < len(st.session_state.verbs):
         st.write(f"### Translate: {en}")
 
     # --- THE MIC BUTTON ---
-    # We only show the mic if there is no feedback currently showing
-    if st.session_state.feedback is None:
+    # We only show the mic if there is NO feedback currently showing
+    if st.session_state.feedback_data is None:
         audio = mic_recorder(
             start_prompt="HOLD TO SPEAK",
-            stop_prompt="PROCESING...", 
+            stop_prompt="PROCESSING...", 
             key=f"mic_{st.session_state.step}",
             just_once=True
         )
 
-        if audio:
+        if audio and audio['bytes']:
             with st.spinner("Checking..."):
                 try:
                     audio_file = io.BytesIO(audio['bytes'])
@@ -83,19 +83,21 @@ if st.session_state.step < len(st.session_state.verbs):
                         model="whisper-1", file=audio_file, language="es"
                     ).text
                     
-                    # Store feedback in state instead of acting immediately
+                    # Store as a solid dictionary
                     if normalize(transcript) == normalize(es):
-                        st.session_state.feedback = {"type": "success", "msg": f"¡Correcto! {es}", "said": transcript}
+                        st.session_state.feedback_data = {"is_correct": True, "msg": f"¡Correcto! {es}", "said": transcript}
                     else:
-                        st.session_state.feedback = {"type": "error", "msg": f"Incorrecto. Es {es}", "said": transcript}
-                    st.rerun() # Force refresh to show the feedback
+                        st.session_state.feedback_data = {"is_correct": False, "msg": f"Incorrecto. Es {es}", "said": transcript}
+                    st.rerun()
                 except Exception:
-                    st.error("Hold the button longer!")
+                    st.error("Hold the button while speaking!")
 
     # --- SHOW FEEDBACK & AUDIO ---
-    if st.session_state.feedback:
-        fb = st.session_state.feedback
-        if fb["type"] == "success":
+    # Using a check to ensure feedback_data exists before reading it
+    if st.session_state.feedback_data is not None:
+        fb = st.session_state.feedback_data
+        
+        if fb["is_correct"]:
             st.success(fb["msg"])
         else:
             st.error(f"{fb['msg']} (You said: {fb['said']})")
@@ -106,7 +108,7 @@ if st.session_state.step < len(st.session_state.verbs):
         # Manual button to move to next question
         if st.button("Next Verb ➡️"):
             st.session_state.step += 1
-            st.session_state.feedback = None # Clear feedback for next round
+            st.session_state.feedback_data = None # Clear feedback for next round
             st.rerun()
 
 else:
@@ -114,5 +116,5 @@ else:
     if st.button("Restart"):
         st.session_state.step = 0
         st.session_state.announced = -1
-        st.session_state.feedback = None
+        st.session_state.feedback_data = None
         st.rerun()
