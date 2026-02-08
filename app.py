@@ -10,7 +10,7 @@ st.title("Colab Tutor: Test Mode 🚀")
 
 # This is how Streamlit handles your OpenAI Key safely
 if "OPENAI_API_KEY" in st.secrets:
-    client = OpenAI(api_key=st.secrets["Lucas11"])
+    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 else:
     st.error("Missing OpenAI API Key in Streamlit Secrets!")
     st.stop()
