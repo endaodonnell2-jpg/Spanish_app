@@ -2,27 +2,29 @@ import streamlit as st
 from openai import OpenAI
 from gtts import gTTS
 from streamlit_mic_recorder import mic_recorder
-import io, unicodedata, string, time
+import io, unicodedata, string
 
-# --- 1. CONFIG & GIANT BUTTON STYLE ---
+# --- 1. SETUP & THE "GIANT BUTTON" STYLE ---
 st.set_page_config(page_title="Colab Tutor", page_icon="🎙️")
 
 st.markdown("""
     <style>
+    /* Centers the recorder */
     .st-emotion-cache-1kyx7g1 { display: flex; justify-content: center; }
     
-    /* The Big Round Button */
+    /* Make the button a massive circle */
     button[data-testid="stBaseButton-secondary"] {
         border-radius: 50% !important;
-        width: 220px !important;
-        height: 220px !important;
+        width: 250px !important;
+        height: 250px !important;
         font-weight: bold !important;
-        font-size: 22px !important;
+        font-size: 24px !important;
         background-color: #28a745 !important; /* Green */
         color: white !important;
-        transition: background-color 0.5s ease;
+        border: 8px solid white !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
     }
-    /* Red while being pressed/active */
+    /* Changes to RED immediately when you are holding it down */
     button[data-testid="stBaseButton-secondary"]:active {
         background-color: #dc3545 !important; 
     }
@@ -39,7 +41,7 @@ if "verbs" not in st.session_state:
         ("I speak chinese", "Yo hablo chino"),
         ("You drink water", "Tú bebes agua")
     ]
-if "last_spoken" not in st.session_state: st.session_state.last_spoken = -1
+if "announced" not in st.session_state: st.session_state.announced = -1
 
 # --- 3. HELPERS ---
 def play_tutor(text, lang='es'):
@@ -53,37 +55,33 @@ def normalize(s):
     s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
     return s.translate(str.maketrans('', '', string.punctuation)).strip()
 
-# --- 4. THE APP ---
+# --- 4. APP LOGIC ---
 st.title("Colab Tutor")
 
 if st.session_state.step < len(st.session_state.verbs):
     en, es = st.session_state.verbs[st.session_state.step]
 
-    # Tutor asks immediately
-    if st.session_state.last_spoken != st.session_state.step:
+    # Tutor asks the question
+    if st.session_state.announced != st.session_state.step:
         play_tutor(f"How do you say: {en}", lang='en')
-        st.session_state.last_spoken = st.session_state.step
+        st.session_state.announced = st.session_state.step
 
     st.write(f"### Translate: {en}")
     
-    # Visual instruction for the user
-    st.caption("Wait 1s after pressing until it's Red, then speak.")
-
-    # THE BUFFERED MIC
+    # --- THE MAGIC BUTTON ---
+    # By using 'just_once=True', the moment you release the hold, 
+    # the component finishes the recording and returns the bytes.
     audio = mic_recorder(
         start_prompt="HOLD TO SPEAK",
-        stop_prompt="RECORDING... (RELEASE TO SEND)",
+        stop_prompt="RELEASE TO CHECK",
         key=f"mic_{st.session_state.step}",
         just_once=True,
+        use_container_width=False
     )
 
-    if audio and audio['bytes']:
-        # The 0.5s Tail: We wait slightly to ensure the buffer is captured
-        time.sleep(0.5) 
-        
-        with st.spinner("Checking..."):
+    if audio:
+        with st.spinner("Tutor is thinking..."):
             try:
-                # Convert to file-like object
                 audio_file = io.BytesIO(audio['bytes'])
                 audio_file.name = "audio.webm"
 
@@ -107,10 +105,10 @@ if st.session_state.step < len(st.session_state.verbs):
                     st.rerun()
                     
             except Exception:
-                st.warning("I missed that. Please hold for a full second before speaking!")
+                st.error("Connection blip. Try holding again!")
 else:
     st.balloons()
     if st.button("Restart"):
         st.session_state.step = 0
-        st.session_state.last_spoken = -1
+        st.session_state.announced = -1
         st.rerun()
