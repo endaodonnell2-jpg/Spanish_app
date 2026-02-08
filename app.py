@@ -1,61 +1,73 @@
 import streamlit as st
 from openai import OpenAI
 from gtts import gTTS
-import base64
+from streamlit_mic_recorder import mic_recorder
 import io
 
 # --- 1. SETUP ---
 st.set_page_config(page_title="Colab Tutor", layout="centered")
-st.title("Colab Tutor: Test Mode 🚀")
 
-# This is how Streamlit handles your OpenAI Key safely
 if "OPENAI_API_KEY" in st.secrets:
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 else:
-    st.error("Missing OpenAI API Key in Streamlit Secrets!")
+    st.error("Missing API Key!")
     st.stop()
 
-# --- 2. DATA & STATE ---
-if "step" not in st.session_state:
-    st.session_state.step = 0
-if "wrong_answers" not in st.session_state:
-    st.session_state.wrong_answers = []
+# --- 2. SIDEBAR MENU ---
+mode = st.sidebar.selectbox("Choose a mode:", ["Translation Drill", "Pronunciation Practice"])
 
+# --- 3. DATA ---
 verbs = [
     ("I speak Chinese", "Yo hablo chino"),
     ("You walk to the park", "Tú caminas al parque")
 ]
 
-# --- 3. HELPER FUNCTIONS ---
-def play_audio(text, lang='es'):
-    tts = gTTS(text, lang=lang)
+# --- 4. AUDIO PLAYER ---
+def play_audio(text):
+    tts = gTTS(text, lang='es')
     fp = io.BytesIO()
     tts.write_to_fp(fp)
-    st.audio(fp)
+    st.audio(fp, autoplay=True)
 
-# --- 4. THE TEST FUNCTION (Translation) ---
-def translation_test():
-    if st.session_state.step < len(verbs):
-        en, es = verbs[st.session_state.step]
-        st.subheader(f"Translate: '{en}'")
-        
-        user_input = st.text_input("Type in Spanish:", key=f"input_{st.session_state.step}")
+# --- 5. MODE: TRANSLATION ---
+if mode == "Translation Drill":
+    st.title("✍️ Translation Practice")
+    if "t_step" not in st.session_state: st.session_state.t_step = 0
+    
+    if st.session_state.t_step < len(verbs):
+        en, es = verbs[st.session_state.t_step]
+        st.subheader(f"How do you say: '{en}'?")
+        user_input = st.text_input("Type here:", key=f"t_{st.session_state.t_step}")
         
         if st.button("Check Answer"):
             if user_input.lower().strip() == es.lower().strip():
-                st.success("¡Correcto!")
+                st.success("Correct!")
                 play_audio(es)
-                st.session_state.step += 1
+                st.session_state.t_step += 1
                 st.rerun()
             else:
-                st.error(f"Incorrecto. It is: {es}")
-                st.session_state.wrong_answers.append(verbs[st.session_state.step])
+                st.error(f"Incorrect. It's: {es}")
                 play_audio(es)
     else:
-        st.balloons()
-        st.write("Test Complete!")
-        if st.button("Restart"):
-            st.session_state.step = 0
+        st.write("Done!")
+        if st.button("Restart"): 
+            st.session_state.t_step = 0
             st.rerun()
 
-translation_test()
+# --- 6. MODE: PRONUNCIATION ---
+elif mode == "Pronunciation Practice":
+    st.title("🎤 Pronunciation Practice")
+    if "p_step" not in st.session_state: st.session_state.p_step = 0
+    
+    en, es = verbs[st.session_state.p_step % len(verbs)]
+    st.subheader(f"Repeat after me: '{es}'")
+    if st.button("Listen to Example"):
+        play_audio(es)
+    
+    st.write("Click 'Start' to record, then 'Stop' when finished:")
+    audio = mic_recorder(start_prompt="🔴 Start Recording", stop_prompt="⏹️ Stop", key='recorder')
+
+    if audio:
+        st.audio(audio['bytes'])
+        # Here we would add the AI feedback logic next!
+        st.info("Audio received! (AI Analysis coming in the next update)")
