@@ -4,9 +4,11 @@ from gtts import gTTS
 from streamlit_mic_recorder import mic_recorder
 import io, unicodedata, string
 
-# --- 1. STYLE & SETUP ---
-st.set_page_config(page_title="Colab Tutor", page_icon="🎙️")
+# --- 1. SETUP ---
+st.set_page_config(page_title="Colab Tutor")
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
+# --- 2. THE CSS (Force the Red/Green) ---
 st.markdown("""
     <style>
     .st-emotion-cache-1kyx7g1 { display: flex; justify-content: center; }
@@ -14,10 +16,9 @@ st.markdown("""
         border-radius: 50% !important;
         width: 250px !important;
         height: 250px !important;
-        font-weight: bold !important;
         background-color: #28a745 !important;
         color: white !important;
-        border: 10px solid #ffffff !important;
+        font-weight: bold !important;
     }
     button[data-testid="stBaseButton-secondary"]:active {
         background-color: #ff0000 !important;
@@ -25,9 +26,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
-# --- 2. DATA ---
+# --- 3. STATE ---
 if "step" not in st.session_state: st.session_state.step = 0
 if "verbs" not in st.session_state:
     st.session_state.verbs = [
@@ -35,86 +34,77 @@ if "verbs" not in st.session_state:
         ("I speak chinese", "Yo hablo chino"),
         ("You drink water", "Tú bebes agua")
     ]
-if "announced" not in st.session_state: st.session_state.announced = -1
-if "feedback_data" not in st.session_state: st.session_state.feedback_data = None
+if "last_asked" not in st.session_state: st.session_state.last_asked = -1
 
-# --- 3. HELPERS ---
-def play_audio(text, lang='es'):
+# --- 4. FUNCTIONS ---
+def speak(text, lang='es'):
     tts = gTTS(text, lang=lang)
     fp = io.BytesIO()
     tts.write_to_fp(fp)
     st.audio(fp, format="audio/mp3", autoplay=True)
 
-def normalize(s):
+def clean(s):
     s = s.lower()
     s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
     return s.translate(str.maketrans('', '', string.punctuation)).strip()
 
-# --- 4. APP LOGIC ---
+# --- 5. THE APP ---
 st.title("Colab Tutor")
 
 if st.session_state.step < len(st.session_state.verbs):
     en, es = st.session_state.verbs[st.session_state.step]
 
-    # Tutor asks the question
-    if st.session_state.announced != st.session_state.step:
+    # Ask the question ONLY ONCE
+    if st.session_state.last_asked != st.session_state.step:
         st.write(f"### Translate: {en}")
-        play_audio(f"How do you say: {en}", lang='en')
-        st.session_state.announced = st.session_state.step
+        speak(f"How do you say: {en}", lang='en')
+        st.session_state.last_asked = st.session_state.step
     else:
         st.write(f"### Translate: {en}")
 
-    # --- THE MIC BUTTON ---
-    # We only show the mic if there is NO feedback currently showing
-    if st.session_state.feedback_data is None:
-        audio = mic_recorder(
-            start_prompt="HOLD TO SPEAK",
-            stop_prompt="PROCESSING...", 
-            key=f"mic_{st.session_state.step}",
-            just_once=True
-        )
+    # THE MIC - Using 'just_once' and a clean key
+    # If the user has already spoken, we hide the mic to prevent double-clicks
+    audio = mic_recorder(
+        start_prompt="HOLD TO SPEAK",
+        stop_prompt="RELEASED - CHECKING...",
+        key=f"mic_v3_{st.session_state.step}",
+        just_once=True
+    )
 
-        if audio and audio['bytes']:
-            with st.spinner("Checking..."):
-                try:
-                    audio_file = io.BytesIO(audio['bytes'])
-                    audio_file.name = "audio.webm"
-                    transcript = client.audio.transcriptions.create(
-                        model="whisper-1", file=audio_file, language="es"
-                    ).text
-                    
-                    # Store as a solid dictionary
-                    if normalize(transcript) == normalize(es):
-                        st.session_state.feedback_data = {"is_correct": True, "msg": f"¡Correcto! {es}", "said": transcript}
-                    else:
-                        st.session_state.feedback_data = {"is_correct": False, "msg": f"Incorrecto. Es {es}", "said": transcript}
+    if audio and audio['bytes']:
+        with st.spinner("Tutor is listening..."):
+            try:
+                # 1. Transcribe
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1", 
+                    file=io.BytesIO(audio['bytes']), 
+                    language="es"
+                ).text
+                
+                # 2. Check Answer
+                if clean(transcript) == clean(es):
+                    feedback = f"¡Correcto! {es}"
+                    st.success(feedback)
+                else:
+                    feedback = f"Incorrecto. Es {es}"
+                    st.error(f"{feedback} (You said: {transcript})")
+                
+                # 3. Speak Feedback IMMEDIATELY
+                speak(feedback)
+                
+                # 4. Stay here until 'Next' is clicked
+                if st.button("Next Verb ➡️"):
+                    st.session_state.step += 1
                     st.rerun()
-                except Exception:
-                    st.error("Hold the button while speaking!")
 
-    # --- SHOW FEEDBACK & AUDIO ---
-    # Using a check to ensure feedback_data exists before reading it
-    if st.session_state.feedback_data is not None:
-        fb = st.session_state.feedback_data
-        
-        if fb["is_correct"]:
-            st.success(fb["msg"])
-        else:
-            st.error(f"{fb['msg']} (You said: {fb['said']})")
-        
-        # Play the tutor's correction
-        play_audio(fb["msg"])
-
-        # Manual button to move to next question
-        if st.button("Next Verb ➡️"):
-            st.session_state.step += 1
-            st.session_state.feedback_data = None # Clear feedback for next round
-            st.rerun()
+            except Exception as e:
+                st.error("Wait for the red light, then speak!")
+                if st.button("Try Again"):
+                    st.rerun()
 
 else:
-    st.success("Session Complete!")
+    st.success("List finished!")
     if st.button("Restart"):
         st.session_state.step = 0
-        st.session_state.announced = -1
-        st.session_state.feedback_data = None
+        st.session_state.last_asked = -1
         st.rerun()
