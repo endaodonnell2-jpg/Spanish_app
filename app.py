@@ -4,113 +4,105 @@ from gtts import gTTS
 from streamlit_mic_recorder import mic_recorder
 import io, unicodedata, string
 
-# --- 1. SETTINGS & STYLE ---
+# --- 1. CONFIG & STYLE ---
 st.set_page_config(page_title="Colab Tutor", page_icon="🎙️")
 
-# Custom CSS for the "Giant Action Button" and layout
+# CSS to make the button look like a big Walkie-Talkie
 st.markdown("""
     <style>
-    /* Make the mic button container centered and large */
-    .st-emotion-cache-1kyx7g1 { 
-        display: flex; 
-        justify-content: center; 
-    }
-    /* Style the actual mic button */
+    /* Center the microphone */
+    .st-emotion-cache-1kyx7g1 { display: flex; justify-content: center; }
+    
+    /* Make the button circular and big */
     button[data-testid="stBaseButton-secondary"] {
         border-radius: 50% !important;
-        width: 200px !important;
-        height: 200px !important;
-        background-color: #ff4b4b !important;
-        color: white !important;
+        width: 180px !important;
+        height: 180px !important;
         font-weight: bold !important;
-        font-size: 20px !important;
-        border: 5px solid white !important;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2) !important;
+        border: 4px solid #eeeeee !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# --- 2. SESSION STATE ---
+# --- 2. DATA & SESSION STATE ---
 if "verbs" not in st.session_state:
     st.session_state.verbs = [
-        ("I speak chinese", "Yo hablo chino"),
-        ("You speak chinese", "Tú hablas chino"),
-        ("He speaks chinese", "Él habla chino"),
         ("I walk to the park", "Yo camino al parque"),
-        ("You walk to the park", "Tú caminas al parque")
+        ("I speak chinese", "Yo hablo chino"),
+        ("You drink water", "Tú bebes agua"),
+        ("He eats an apple", "Él come una manzana"),
+        ("We speak Spanish", "Nosotros hablamos español")
     ]
 
 if "step" not in st.session_state: st.session_state.step = 0
-if "announced" not in st.session_state: st.session_state.announced = -1
-if "processing" not in st.session_state: st.session_state.processing = False
+if "last_spoken_step" not in st.session_state: st.session_state.last_spoken_step = -1
 
 # --- 3. HELPERS ---
-def normalize(s: str) -> str:
-    s = s.lower()
-    s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
-    s = ''.join(ch for ch in s if ch not in string.punctuation)
-    return ' '.join(s.split())
-
-def play_audio(text):
+def play_tutor(text):
     tts = gTTS(text, lang='es')
+    if "How do you say" in text:
+        tts = gTTS(text, lang='en') # Ask in English
     fp = io.BytesIO()
     tts.write_to_fp(fp)
     st.audio(fp, format="audio/mp3", autoplay=True)
 
-# --- 4. THE APP FLOW ---
+def normalize(s):
+    s = s.lower()
+    s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+    return s.translate(str.maketrans('', '', string.punctuation)).strip()
+
+# --- 4. APP LOGIC ---
 st.title("Colab Tutor")
 
 if st.session_state.step < len(st.session_state.verbs):
     en, es = st.session_state.verbs[st.session_state.step]
-    
-    # STEP A: TEACHER ASKS THE QUESTION IMMEDIATELY
-    if st.session_state.announced != st.session_state.step:
-        st.write(f"### Question {st.session_state.step + 1}")
-        play_audio(f"How do you say: {en}")
-        st.session_state.announced = st.session_state.step
 
-    st.subheader(f"🗣️ Translate: '{en}'")
+    # A. TUTOR ASKS QUESTION IMMEDIATELY
+    if st.session_state.last_spoken_step != st.session_state.step:
+        play_tutor(f"How do you say: {en}")
+        st.session_state.last_spoken_step = st.session_state.step
 
-    # STEP B: THE MIC (Visual Feedback via Prompts)
-    # This component handles the 'Red when recording' internally
+    st.write(f"### Question {st.session_state.step + 1}")
+    st.info(f"**Translate:** {en}")
+
+    # B. THE HOLD-TO-SPEAK BUTTON
+    # 'just_once=True' makes it process as soon as you release the button
     audio = mic_recorder(
-        start_prompt="TAP TO START",
-        stop_prompt="TAP TO CHECK",
-        key=f'mic_{st.session_state.step}'
+        start_prompt="HOLD TO SPEAK (GREEN)",
+        stop_prompt="RECORDING... RELEASE (RED)",
+        key=f"mic_{st.session_state.step}",
+        just_once=True
     )
 
-    if audio and not st.session_state.processing:
-        st.session_state.processing = True
-        audio_bio = io.BytesIO(audio['bytes'])
-        audio_bio.name = "audio.webm"
-        
-        with st.spinner("Tutor is listening..."):
+    if audio:
+        with st.spinner("Checking..."):
             transcript = client.audio.transcriptions.create(
-                model="whisper-1", file=audio_bio, language="es"
+                model="whisper-1", 
+                file=io.BytesIO(audio['bytes']), 
+                language="es"
             ).text
             
-            # STEP C: FEEDBACK
-            if normalize(transcript) == normalize(es):
-                feedback_msg = f"Correcto! {es}"
-                st.success(f"✅ {feedback_msg}")
-                play_audio(feedback_msg)
+            user_said = normalize(transcript)
+            correct_ans = normalize(es)
+
+            if user_said == correct_ans:
+                st.success(f"✅ Correcto! {es}")
+                play_tutor(f"¡Correcto! {es}")
             else:
-                feedback_msg = f"Incorrecto, it is {es}"
-                st.error(f"❌ {feedback_msg} (You said: {transcript})")
-                play_audio(feedback_msg)
-        
-        # Move forward automatically after feedback
-        if st.button("Move to Next Verb ➡️"):
-            st.session_state.step += 1
-            st.session_state.processing = False
-            st.rerun()
+                st.error(f"❌ Incorrecto. You said '{transcript}'. It is: {es}")
+                play_tutor(f"Incorrecto. Es {es}")
+            
+            # Button to move to next
+            if st.button("Next Verb ➡️"):
+                st.session_state.step += 1
+                st.rerun()
 
 else:
     st.balloons()
-    st.success("You've finished the list!")
-    if st.button("Start Over"):
+    st.success("Session finished!")
+    if st.button("Restart"):
         st.session_state.step = 0
-        st.session_state.announced = -1
+        st.session_state.last_spoken_step = -1
         st.rerun()
