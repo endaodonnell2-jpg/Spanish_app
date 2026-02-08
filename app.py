@@ -2,35 +2,26 @@ import streamlit as st
 from openai import OpenAI
 from gtts import gTTS
 from streamlit_mic_recorder import mic_recorder
-import io
-import unicodedata
-import string
+import io, unicodedata, string
 
 # --- 1. SETUP ---
 st.set_page_config(page_title="Colab Tutor", page_icon="🚀")
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# This looks for the secret you saved in the Streamlit "Vault"
-if "OPENAI_API_KEY" in st.secrets:
-    client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-else:
-    st.error("Missing API Key in Streamlit Secrets!")
-    st.stop()
-
-# --- 2. DATA (Your Full List) ---
-if "jugar_verbs" not in st.session_state:
-    st.session_state.jugar_verbs = [
-        ("I speak chinese", "Yo hablo chino"), ("You speak chinese", "Tú hablas chino"),
-        ("He speaks chinese", "Él habla chino"), ("She speaks chinese", "Ella habla chino"),
-        ("I walk to the park", "Yo camino al parque"), ("You walk to the park", "Tú caminas al parque"),
-        ("He walks to the park", "Él camina al parque"), ("She walks to the park", "Ella camina al parque"),
-        ("I watch television", "Yo miro televisión"), ("You watch television", "Tú miras televisión"),
-        ("He watches television", "Él mira televisión"), ("She watches television", "Ella mira televisión"),
-        ("I teach Maths", "Yo enseño matemáticas"), ("You teach Maths", "Tú enseññas matemáticas"),
-        ("He teaches Maths", "Él enseña matemáticas"), ("She teaches Maths", "Ella enseña matemáticas")
+# --- 2. DATA ---
+if "verbs" not in st.session_state:
+    st.session_state.verbs = [
+        ("I speak chinese", "Yo hablo chino"),
+        ("You speak chinese", "Tú hablas chino"),
+        ("He speaks chinese", "Él habla chino"),
+        ("I walk to the park", "Yo camino al parque"),
+        ("You walk to the park", "Tú caminas al parque")
     ]
 
+# Initialize state variables
 if "step" not in st.session_state: st.session_state.step = 0
-if "wrong_drills" not in st.session_state: st.session_state.wrong_drills = []
+if "feedback_text" not in st.session_state: st.session_state.feedback_text = ""
+if "show_next" not in st.session_state: st.session_state.show_next = False
 
 # --- 3. HELPERS ---
 def normalize(s: str) -> str:
@@ -40,63 +31,55 @@ def normalize(s: str) -> str:
     return ' '.join(s.split())
 
 def play_audio(text):
-    tts = gTTS(text, lang='es', tld='es')
+    tts = gTTS(text, lang='es')
     fp = io.BytesIO()
     tts.write_to_fp(fp)
-    # The 'autoplay' ensures it plays once as soon as the UI updates
     st.audio(fp, format="audio/mp3", autoplay=True)
 
-# --- 4. THE FLOW ---
-st.title("Colab Tutor: Air Practice")
+# --- 4. THE UI ---
+st.title("Colab Tutor")
 
-if st.session_state.step < len(st.session_state.jugar_verbs):
-    en, es = st.session_state.jugar_verbs[st.session_state.step]
+if st.session_state.step < len(st.session_state.verbs):
+    en, es = st.session_state.verbs[st.session_state.step]
     
-    st.write(f"**Question {st.session_state.step + 1}:**")
-    st.subheader(f"How do you say: '{en}'?")
+    st.write(f"### How do you say: '{en}'?")
     
-    # Microphone component
-    audio = mic_recorder(start_prompt="🔴 Tap to Speak", stop_prompt="⏹️ Stop & Check", key='mic')
+    # Only show mic if we aren't waiting for the user to click "Next"
+    if not st.session_state.show_next:
+        audio = mic_recorder(start_prompt="🔴 Hold to Speak", stop_prompt="⏹️ Stop", key=f'mic_{st.session_state.step}')
 
-    if audio:
-        # Convert audio to file for Whisper
-        audio_bio = io.BytesIO(audio['bytes'])
-        audio_bio.name = "audio.webm"
+        if audio:
+            audio_bio = io.BytesIO(audio['bytes'])
+            audio_bio.name = "audio.webm"
+            
+            with st.spinner("Checking..."):
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1", file=audio_bio, language="es"
+                ).text
+                
+                if normalize(transcript) == normalize(es):
+                    st.session_state.feedback_text = f"✅ ¡Correcto! You said: {transcript}"
+                    st.session_state.current_audio = f"¡Correcto! {es}"
+                else:
+                    st.session_state.feedback_text = f"❌ Incorrecto. You said: {transcript}. It is: {es}"
+                    st.session_state.current_audio = f"Incorrecto. Es {es}"
+                
+                st.session_state.show_next = True
+                st.rerun()
+
+    # Show Feedback and "Next" button
+    if st.session_state.show_next:
+        st.write(st.session_state.feedback_text)
+        play_audio(st.session_state.current_audio)
         
-        with st.spinner("Teacher is checking..."):
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1", file=audio_bio, language="es"
-            ).text
-            
-            user_norm = normalize(transcript)
-            expected_norm = normalize(es)
-            
-            if user_norm == expected_norm:
-                st.success(f"¡Correcto! You said: {transcript}")
-                play_audio(f"¡Correcto! {es}")
-                if st.button("Next ➡️"):
-                    st.session_state.step += 1
-                    st.rerun()
-            else:
-                st.error(f"¡Incorrecto! You said: {transcript}")
-                st.info(f"The answer is: {es}")
-                st.session_state.wrong_drills.append(st.session_state.jugar_verbs[st.session_state.step])
-                play_audio(f"Incorrecto. Es {es}")
-                if st.button("Continue ➡️"):
-                    st.session_state.step += 1
-                    st.rerun()
+        if st.button("Next Question ➡️"):
+            st.session_state.step += 1
+            st.session_state.show_next = False
+            st.session_state.feedback_text = ""
+            st.rerun()
+
 else:
-    # Review Logic
-    if st.session_state.wrong_drills:
-        st.warning(f"Drills finished, but let's review the {len(st.session_state.wrong_drills)} you missed!")
-        if st.button("Start Review"):
-            st.session_state.jugar_verbs = st.session_state.wrong_drills.copy()
-            st.session_state.wrong_drills = []
-            st.session_state.step = 0
-            st.rerun()
-    else:
-        st.balloons()
-        st.success("Perfect score! All verbs mastered.")
-        if st.button("Restart All"):
-            st.session_state.step = 0
-            st.rerun()
+    st.success("All done! Great session.")
+    if st.button("Restart"):
+        st.session_state.step = 0
+        st.rerun()
