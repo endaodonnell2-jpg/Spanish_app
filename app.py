@@ -17,49 +17,54 @@ client = OpenAI(api_key=st.secrets["Lucas13"])
 st.title("🎙️ Colab Tutor (Lucas11)")
 
 # 2. INPUT
-# We use a key "my_mic" so we can clear it later
-audio_input = st.audio_input("Speak to Lucas11", key="my_mic")
+# Native mic component - the data stays until you record over it or clear it
+audio_input = st.audio_input("Speak to Lucas11", key="lucas_mic")
 
 if audio_input:
-    # 3. TRANSCRIPTION (Whisper API)
-    with st.spinner("Lucas is listening..."):
+    # 3. TRANSCRIPTION (Whisper)
+    with st.spinner("Listening..."):
         transcript = client.audio.transcriptions.create(
             model="whisper-1", 
             file=audio_input
         ).text
     
-    st.write(f"**You said:** {transcript}")
+    st.write(f"**You:** {transcript}")
 
-    # 4. LOGIC & AUDIO GENERATION
-    def play_combined(texts):
-        combined = AudioSegment.empty()
+    # 4. THE BRAIN (GPT-4o)
+    # This sends your text to the AI to get a real answer
+    with st.spinner("Thinking..."):
+        gpt_response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are Lucas11, a helpful and witty Colab Tutor. Keep your answers concise and conversational."},
+                {"role": "user", "content": transcript}
+            ]
+        )
+        ai_text = gpt_response.choices[0].message.content
+
+    # 5. VOICE GENERATION (gTTS + Pydub)
+    def speak_back(text):
+        fname = f"{uuid.uuid4().hex}.mp3"
+        tts = gTTS(text, lang="en")
+        tts.save(fname)
         
-        for text, lang in texts:
-            # Create a unique temp file
-            fname = f"{uuid.uuid4().hex}.mp3"
-            tts = gTTS(text, lang=lang)
-            tts.save(fname)
-            
-            # Add to the mix
-            combined += AudioSegment.from_mp3(fname) + AudioSegment.silent(duration=400)
-            
-            # Cleanup temp file
-            if os.path.exists(fname):
-                os.remove(fname)
-        
-        # Prepare for playback
+        # Load and prepare audio
+        audio_seg = AudioSegment.from_mp3(fname)
         buf = io.BytesIO()
-        combined.export(buf, format="mp3")
+        audio_seg.export(buf, format="mp3")
         
-        # Display output
-        st.markdown(f"### **Lucas11:** {texts[0][0]}")
-        st.audio(buf, format="audio/mp3", autoplay=True) # Added autoplay so he talks back immediately
+        # Cleanup temp file from server immediately
+        if os.path.exists(fname):
+            os.remove(fname)
+            
+        # Display text and Play Audio automatically
+        st.markdown(f"### **Lucas11:** {text}")
+        st.audio(buf, format="audio/mp3", autoplay=True)
 
-    # Run the AI response
-    play_combined([(transcript, "en"), ("I heard you clearly.", "en")])
+    # Execute the response
+    speak_back(ai_text)
 
-    # 5. THE "DELETE" TRICK
-    # This clears the microphone input so it doesn't loop or stay on screen
-    if st.button("Clear Conversation"):
-        st.session_state.my_mic = None
+    # 6. DELETE/RESET OPTION
+    if st.button("Clear for next question"):
+        st.session_state.lucas_mic = None
         st.rerun()
