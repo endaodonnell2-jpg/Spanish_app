@@ -1,42 +1,46 @@
 import streamlit as st
-from audio_recorder_streamlit import audio_recorder
+from streamlit_mic_recorder import mic_recorder
 
-st.set_page_config(page_title="Spanish Practice", page_icon="🎙️")
+st.set_page_config(page_title="Spanish Push-to-Talk", page_icon="🎙️")
 
 st.title("🎙️ Spanish Practice")
-st.write("Click the mic to record. It will stop and play back automatically when you finish speaking.")
+st.write("Hold the button down to record. Let go to play back.")
 
 # WhatsApp Style Styling
 st.markdown("""
     <style>
-    /* Center the mic and make it green */
-    .stAudioRecorder {
-        display: flex;
-        justify-content: center;
-    }
-    button {
+    /* Make the button a big green circle */
+    button[title="Click to record"] {
+        background-color: #00a884 !important;
         border-radius: 50% !important;
+        width: 100px !important;
+        height: 100px !important;
+        color: white !important;
+        border: none !important;
+        font-weight: bold !important;
+    }
+    /* Change color to red while holding */
+    button[title="Click to record"]:active {
+        background-color: #ff4b4b !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# The Recorder
-# pause_threshold=1.0 means if you stop talking for 1 second, it finishes and plays back.
-audio_bytes = audio_recorder(
-    text="Click to Speak",
-    recording_color="#e8b62c",
-    neutral_color="#00a884",
-    icon_size="3x",
-    pause_threshold=1.0, 
+# The Component
+# By default, this component handles the 'mousedown' (start) 
+# and 'mouseup' (stop) logic when configured this way.
+audio = mic_recorder(
+    start_prompt="HOLD",
+    stop_prompt="RELEASE",
+    key="my_mic"
 )
 
 # Playback and Auto-Delete Logic
-if audio_bytes:
-    st.write("### Hear your Spanish:")
-    st.audio(audio_bytes, format="audio/wav")
+if audio:
+    st.write("### Review your Spanish:")
+    st.audio(audio['bytes'])
     
-    # This button wipes the memory
-    if st.button("🗑️ Delete & Try Again"):
+    if st.button("🗑️ Delete & Clear"):
         st.rerun()
 else:
-    st.info("Mic is ready. Speak clearly in Spanish!")
+    st.info("Press and hold the button above.")
