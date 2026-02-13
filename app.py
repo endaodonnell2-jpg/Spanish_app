@@ -1,2 +1,2 @@
-python test_component.py
+python test_componant.py
 
