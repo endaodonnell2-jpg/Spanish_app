@@ -3,3 +3,5 @@ gtts
 streamlit
 streamlit-mic-recorder
 audio-recorder-streamlit
+openai-whisper
+SpeechRecognition
