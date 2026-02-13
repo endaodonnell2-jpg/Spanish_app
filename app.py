@@ -111,5 +111,6 @@ if audio_b64:
 
             st.write(f"**You said:** {transcript}")
         except Exception as e:
-            st.error(f"Error transcribin
+            st.error(f"Error transcribing audio: {e}")
+
 
