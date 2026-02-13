@@ -1,44 +1,88 @@
 import streamlit as st
-from streamlit_mic_recorder import mic_recorder
+import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Spanish Push-to-Talk", page_icon="🎙️")
+st.set_page_config(page_title="Spanish App")
 
-st.title("🎙️ Spanish Practice")
-st.write("Hold the button down to record. Let go to play back.")
-
-# WhatsApp Style Styling
 st.markdown("""
     <style>
-    /* Make the button a big green circle */
-    button[title="Click to record"] {
-        background-color: #00a884 !important;
-        border-radius: 50% !important;
-        width: 100px !important;
-        height: 100px !important;
-        color: white !important;
-        border: none !important;
-        font-weight: bold !important;
+    .stApp { background-color: #111; color: white; }
+    /* The WhatsApp Mic Button */
+    .mic-btn {
+        width: 120px; height: 120px; border-radius: 50%;
+        background-color: #00a884; border: none; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        margin: auto; touch-action: none; outline: none;
     }
-    /* Change color to red while holding */
-    button[title="Click to record"]:active {
-        background-color: #ff4b4b !important;
-    }
+    .mic-btn:active { background-color: #ff4b4b; transform: scale(0.95); }
+    .status { text-align: center; margin-top: 10px; font-family: sans-serif; }
     </style>
 """, unsafe_allow_html=True)
 
-# The Component
-# By default, this component handles the 'mousedown' (start) 
-# and 'mouseup' (stop) logic when configured this way.
-audio = mic_recorder(
-    start_prompt="HOLD",
-    stop_prompt="RELEASE",
-    key="my_mic"
-)
+# The JavaScript handles the HOLD logic and the AUTO-DELETE after play
+hold_to_record_js = """
+<div id="container">
+    <button class="mic-btn" id="mic">
+        <svg viewBox="0 0 24 24" width="50" height="50" fill="white">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+        </svg>
+    </button>
+    <div class="status" id="status">HOLD TO SPEAK</div>
+    <div id="player-container" style="margin-top:20px; text-align:center;"></div>
+</div>
 
-# Playback and Auto-Delete Logic
-if audio:
-    st.write("### Review your Spanish:")
-    st.audio(audio['bytes'])
+<script>
+    const btn = document.getElementById('mic');
+    const status = document.getElementById('status');
+    const playerContainer = document.getElementById('player-container');
+    let mediaRecorder;
+    let audioChunks = [];
+
+    // START RECORDING ON PRESS
+    btn.onmousedown = btn.ontouchstart = async (e) => {
+        e.preventDefault();
+        audioChunks = [];
+        playerContainer.innerHTML = ''; // Clear previous player
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = (event) => audioChunks.push(event.data);
+        
+        mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            
+            // UI Update
+            status.innerText = "PLAYING BACK...";
+            audio.play();
+            
+            // THE AUTO-DELETE LOGIC
+            audio.onended = () => {
+                status.innerText = "HOLD TO SPEAK";
+                URL.revokeObjectURL(audioUrl); // Deletes from browser memory
+                playerContainer.innerHTML = ''; // Removes player from UI
+            };
+        };
+        
+        mediaRecorder.start();
+        status.innerText = "RECORDING...";
+    };
+
+    // STOP RECORDING ON RELEASE
+    btn.onmouseup = btn.onmouseleave = btn.ontouchend = () => {
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+            mediaRecorder.stop();
+        }
+    };
+</script>
+
+<style>
+    .mic-btn { width: 100px; height: 100px; border-radius: 50%; background-color: #00a884; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; margin: auto; }
+    .mic-btn:active { background-color: #ff4b4b; }
+    .status { color: #aaa; text-align: center; margin-top: 10px; font-family: sans-serif; font-weight: bold; }
+</style>
+"""
+
+components.html(hold_to_record_js, height=250)
     
     if st.button("🗑️ Delete & Clear"):
         st.rerun()
