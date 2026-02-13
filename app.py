@@ -28,7 +28,7 @@ jugar_verbs = [
     ("She watches television", "Ella mira televisión"),
     ("I teach Maths", "Yo enseño matemáticas"),
     ("You teach Maths", "Tú enseñas matemáticas"),
-    ("He teaches Maths", "Él teaches matemáticas"),
+    ("He teaches Maths", "Él enseña matemáticas"),
     ("She teaches Maths", "Ella enseña matemáticas"),
 ]
 
@@ -64,21 +64,24 @@ def speak_bilingual(text):
     return len(combined) / 1000.0
 
 # 3. TEACHER LOGIC
-# Determine current index
 queue = st.session_state.failed_steps if st.session_state.review_mode else list(range(len(jugar_verbs)))
-current_idx = queue[st.session_state.step] if st.session_state.step < len(queue) else None
+total_in_queue = len(queue)
 
-if current_idx is not None:
+if st.session_state.step < total_in_queue:
+    current_idx = queue[st.session_state.step]
     en_q, es_a = jugar_verbs[current_idx]
     
+    # DISPLAY COUNTER (e.g., 2/16)
+    mode_label = "Review Round" if st.session_state.review_mode else "Main Lesson"
+    st.markdown(f"### {mode_label}: {st.session_state.step + 1} / {total_in_queue}")
+
     if not st.session_state.lock:
-        st.subheader("Review Mode" if st.session_state.review_mode else "Learning Mode")
-        st.info(f"Question: {en_q}")
+        st.info(f"How do you say: '{en_q}'?")
         
-        # Lucas asks verbally
-        if f"asked_{current_idx}" not in st.session_state:
+        # Lucas asks verbally only once per step
+        if f"asked_{current_idx}_{st.session_state.review_mode}" not in st.session_state:
             speak_bilingual(f"[EN] How do you say: {en_q}?")
-            st.session_state[f"asked_{current_idx}"] = True
+            st.session_state[f"asked_{current_idx}_{st.session_state.review_mode}"] = True
 
         audio_input = st.audio_input("Your answer:", key=f"mic_{current_idx}_{st.session_state.review_mode}")
         if audio_input:
@@ -87,23 +90,29 @@ if current_idx is not None:
             st.rerun()
 
     if st.session_state.lock and st.session_state.get('current_audio'):
+        # Transcribe & Display what user said
         transcript = client.audio.transcriptions.create(
             model="whisper-1", file=st.session_state.current_audio, language="es"
         ).text
-        
+        st.success(f"**You said:** {transcript}")
+
         # GPT Validation
         prompt = f'User: "{transcript}". Correct: "{es_a}". Reply only: "[ES] ¡Correcto! [ES] {es_a}" OR "[ES] ¡Incorrecto! [EN] It\'s more like this: [ES] {es_a}"'
         res = client.chat.completions.create(model="gpt-4o", messages=[{"role":"user","content":prompt}]).choices[0].message.content
 
-        # Handle wrong answers
-        if "¡Incorrecto!" in res and current_idx not in st.session_state.failed_steps:
-            st.session_state.failed_steps.append(current_idx)
+        # Record failures ONLY in the first round
+        if "¡Incorrecto!" in res and not st.session_state.review_mode:
+            if current_idx not in st.session_state.failed_steps:
+                st.session_state.failed_steps.append(current_idx)
 
-        st.write(f"**Lucas11:** {res.replace('[ES]','').replace('[EN]','')}")
+        # Show Lucas's Response Text
+        clean_res = res.replace('[ES]','').replace('[EN]','')
+        st.markdown(f"**Lucas11:** {clean_res}")
+        
         dur = speak_bilingual(res)
         
-        # Lock progress bar
-        bar = st.progress(0)
+        # Lock progress bar for audio duration
+        bar = st.progress(0, text="Lucas is speaking...")
         for i in range(101):
             time.sleep(dur / 100); bar.progress(i)
         
@@ -115,12 +124,14 @@ else:
     if not st.session_state.review_mode and st.session_state.failed_steps:
         st.session_state.review_mode = True
         st.session_state.step = 0
-        speak_bilingual("[EN] Now, let's look at the ones you missed.")
+        st.warning("Let's review the ones you missed!")
+        speak_bilingual("[EN] Now, we'll review the wrong ones.")
+        time.sleep(2)
         st.rerun()
     else:
         st.balloons()
         st.success("Lesson Complete!")
         speak_bilingual("[ES] ¡Enhorabuena! Has terminado la lección. [EN] End of conversation.")
-        if st.button("Restart All"):
+        if st.button("Restart Lesson"):
             for key in list(st.session_state.keys()): del st.session_state[key]
             st.rerun()
