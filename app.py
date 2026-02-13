@@ -1,6 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
-#
+
 st.set_page_config(page_title="Spanish App", layout="centered")
 
 # The entire logic is now inside this block to avoid Python Indent Errors
