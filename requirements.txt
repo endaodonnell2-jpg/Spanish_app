@@ -1,4 +1,4 @@
-pydub
+
 openai
 gtts
 streamlit
@@ -8,3 +8,6 @@ openai-whisper
 SpeechRecognition
 PyAudio
 pydub
+gTTS
+openai
+streamlit
