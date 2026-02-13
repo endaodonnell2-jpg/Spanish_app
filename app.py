@@ -1,13 +1,15 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import base64
+import speech_recognition as sr
+import io
 
-st.set_page_config(page_title="Spanish App: English Mode", layout="centered")
+st.set_page_config(page_title="English Practice", layout="centered")
 
-st.title("🎙️ English Practice: Record & Transcribe")
-st.write("Hold to record. On release, your speech will be converted to text.")
+st.title("🎙️ English: Record & Transcribe")
+st.write("Hold to record. Release to see your text.")
 
-# 1. The Frontend Logic (Button + Visualizer + Hold Logic)
+# 1. The Frontend (Hold Logic + Visualizer)
 st_bridge_js = """
 <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif;">
     <canvas id="visualizer" width="300" height="60" style="margin-bottom: 10px;"></canvas>
@@ -84,26 +86,34 @@ st_bridge_js = """
 </script>
 """
 
-# 2. Python Backend (Receives audio, transcribes it, shows text)
 components.html(st_bridge_js, height=220)
 
-# This invisible input catches the audio file from JS
+# Hidden input to catch the audio
 audio_b64 = st.text_input("Audio Bridge", key="audio_b64", label_visibility="collapsed")
 
 if audio_b64:
-    # Use Streamlit's built-in spinner while processing
-    with st.spinner("Transcribing..."):
-        # We need to save the audio to a temporary file for the transcriber
-        audio_bytes = base64.b64decode(audio_b64)
-        
-        # Here we use Streamlit's session state to show the text box
-        # For a truly local feel without a paid API, you can use 'SpeechRecognition' library
-        # But for GitHub, we'll use a simple mock to show you the UI works:
-        st.success("Transcription Complete!")
-        
-        # DISPLAY BOX
-        st.text_area("What you said:", value="[Sample Text: Your voice would be processed here]", height=100)
-        
-        # AUTO-WIPE trigger
-        if st.button("Clear Text"):
-            st.rerun()
+    with st.spinner("Converting speech to text..."):
+        try:
+            # Decode the base64 audio
+            audio_bytes = base64.b64decode(audio_b64)
+            
+            # Use SpeechRecognition to "listen" to the recorded file
+            r = sr.Recognizer()
+            audio_file = io.BytesIO(audio_bytes)
+            
+            with sr.AudioFile(audio_file) as source:
+                audio_data = r.record(source)
+                # transcribing in English
+                text = r.recognize_google(audio_data, language="en-US")
+            
+            st.subheader("What I heard:")
+            st.success(text)
+            
+            # Wipe memory when done
+            if st.button("Clear & Record Again"):
+                st.rerun()
+
+        except sr.UnknownValueError:
+            st.error("Sorry, I couldn't understand the audio. Try speaking clearer!")
+        except Exception as e:
+            st.error("Recording was too short or mic was muffled. Try again!")
