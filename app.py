@@ -1,3 +1,14 @@
+import sys
+try:
+    import audioop
+except ImportError:
+    import audioop_lts as audioop
+    sys.modules["audioop"] = audioop
+
+# NOW you can keep the rest of your imports...
+import streamlit as st
+from pydub import AudioSegment
+
 import streamlit as st
 import base64, io, os, uuid
 from openai import OpenAI
