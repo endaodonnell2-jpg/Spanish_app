@@ -1,36 +1,38 @@
 import sys
 import base64
 import io
+import os
+import uuid
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
+from gtts import gTTS
 from pydub import AudioSegment
 
-# 1. SETUP & PATCH
+# 1. THE PATCH (Keeps Python 3.13 happy)
 try:
     import audioop
 except ImportError:
     import audioop_lts as audioop
     sys.modules["audioop"] = audioop
 
+# 2. SETUP
 client = OpenAI(api_key=st.secrets["Lucas13"])
 
-st.set_page_config(page_title="Colab Tutor", layout="centered")
+st.title("🎙️ Colab Tutor (Lucas11)")
 
-# Hide the technical bridge box
+# --- INVISIBILITY CLOAK (Hides the bridge box) ---
 st.markdown("""
     <style>
     div[data-testid="stTextInput"] { position: absolute; top: -1000px; }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🎙️ Colab Tutor")
-
-# 2. THE FRONTEND
+# 3. FRONTEND: HOLD TO SPEAK BUTTON
 st_bridge_js = """
 <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif;">
     <canvas id="visualizer" width="300" height="60" style="margin-bottom: 10px;"></canvas>
-    <button id="mic" style="width: 100px; height: 100px; border-radius: 50%; background-color: #00a884; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; outline: none;">
+    <button id="mic" style="width: 100px; height: 100px; border-radius: 50%; background-color: #00a884; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; outline: none; transition: 0.2s;">
         <svg viewBox="0 0 24 24" width="50" height="50" fill="white">
             <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
         </svg>
@@ -45,12 +47,14 @@ st_bridge_js = """
     const canvasCtx = canvas.getContext('2d');
     let mediaRecorder, audioChunks = [], audioCtx, analyser, animId;
 
-    function draw(stream) {
+    async function startRecording() {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const source = audioCtx.createMediaStreamSource(stream);
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = 64;
         source.connect(analyser);
+        
         const data = new Uint8Array(analyser.frequencyBinCount);
         const render = () => {
             animId = requestAnimationFrame(render);
@@ -65,15 +69,7 @@ st_bridge_js = """
             }
         };
         render();
-    }
 
-    btn.onmousedown = btn.ontouchstart = async (e) => {
-        e.preventDefault();
-        audioChunks = [];
-        btn.style.backgroundColor = '#ff4b4b';
-        status.innerText = 'RECORDING...';
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        draw(stream);
         mediaRecorder = new MediaRecorder(stream);
         mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
         mediaRecorder.onstop = () => {
@@ -84,11 +80,19 @@ st_bridge_js = """
                 window.parent.postMessage({
                     type: 'streamlit:set_widget_value',
                     data: reader.result.split(',')[1],
-                    key: 'audio_b64'
+                    key: 'audio_bridge'
                 }, '*');
             };
         };
         mediaRecorder.start();
+    }
+
+    btn.onmousedown = btn.ontouchstart = async (e) => {
+        e.preventDefault();
+        audioChunks = [];
+        btn.style.backgroundColor = '#ff4b4b';
+        status.innerText = 'RECORDING...';
+        await startRecording();
     };
 
     btn.onmouseup = btn.onmouseleave = btn.ontouchend = () => {
@@ -105,32 +109,43 @@ st_bridge_js = """
 
 components.html(st_bridge_js, height=220)
 
-# 3. THE BACKEND (The Fix)
-audio_b64 = st.text_input("bridge", key="audio_b64")
+# 4. BACKEND: THE BRIDGE
+# This is the invisible mailbox catching the audio string
+audio_b64 = st.text_input("bridge", key="audio_bridge")
 
 if audio_b64:
     with st.spinner("Processing..."):
         try:
-            # 1. Convert Base64 string to Raw Bytes
+            # A. Convert Base64 to a file object OpenAI understands
             audio_bytes = base64.b64decode(audio_b64)
-            raw_audio_fp = io.BytesIO(audio_bytes)
-            
-            # 2. Use Pydub to "Clean" the audio and export it as a clean WAV
-            # This is what stops the "Invalid File Format" error
-            audio = AudioSegment.from_file(raw_audio_fp)
-            clean_audio_fp = io.BytesIO()
-            audio.export(clean_audio_fp, format="wav")
-            clean_audio_fp.name = "output.wav"
-            clean_audio_fp.seek(0)
+            audio_file = io.BytesIO(audio_bytes)
+            audio_file.name = "input.webm"
 
-            # 3. Send the clean WAV to OpenAI
-            response = client.audio.transcriptions.create(
+            # B. TRANSCRIPTION (Whisper API)
+            transcript = client.audio.transcriptions.create(
                 model="whisper-1", 
-                file=clean_audio_fp
-            )
+                file=audio_file
+            ).text
             
-            st.markdown("### Transcription:")
-            st.write(response.text)
+            st.write(f"**You said:** {transcript}")
+
+            # C. LOGIC & AUDIO GENERATION (Your play_combined benchmark)
+            def play_combined(texts):
+                combined = AudioSegment.empty()
+                for text, lang in texts:
+                    fname = f"{uuid.uuid4().hex}.mp3"
+                    tts = gTTS(text, lang=lang)
+                    tts.save(fname)
+                    combined += AudioSegment.from_mp3(fname) + AudioSegment.silent(duration=400)
+                    if os.path.exists(fname): os.remove(fname)
+                
+                buf = io.BytesIO()
+                combined.export(buf, format="mp3")
+                st.markdown(f"### **Lucas11:** {texts[0][0]}")
+                st.audio(buf, format="audio/mp3")
+
+            # Execute logic
+            play_combined([(transcript, "en"), ("I heard you clearly.", "en")])
             
         except Exception as e:
-            st.error(f"OpenAI Error: {e}")
+            st.error(f"Something went wrong: {e}")
