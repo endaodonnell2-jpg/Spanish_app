@@ -6,3 +6,4 @@ audio-recorder-streamlit
 openai-whisper
 SpeechRecognition
 PyAudio
+pydub
