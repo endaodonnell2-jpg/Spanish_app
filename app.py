@@ -1,50 +1,47 @@
 import streamlit as st
-import base64
-import tempfile
-import re
-import time
-from gtts import gTTS
-from openai import OpenAI
+from audio_recorder_streamlit import audio_recorder
 
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+# Set page title
+st.set_page_config(page_title="WhatsApp Style Recorder", page_icon="🎙️")
 
-# =========================
-# SESSION STATE INIT
-# =========================
-if "step" not in st.session_state:
-    st.session_state.step = 0
-    st.session_state.history = []
+st.title("🎙️ WhatsApp Style Recorder")
+st.write("Hold the microphone to record, release to hear it back!")
 
-# =========================
-# VERB LIST
-# =========================
-jugar_verbs = [
-    ("I play football", "Yo juego al fútbol"),
-    ("You play football", "Tú juegas al fútbol"),
-    ("He plays football", "Él juega al fútbol"),
-]
+# Custom CSS to make it look a bit more like WhatsApp
+st.markdown("""
+    <style>
+    div[data-testid="stVerticalBlock"] > div:has(div.stMarkdown) {
+        text-align: center;
+    }
+    /* Make the recorder look like a floating action button */
+    .stAudioRecorder {
+        justify-content: center;
+        display: flex;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# =========================
-# BILINGUAL TTS
-# =========================
-def speak_bilingual(text):
-    chunks = re.split(r'(\[ES\]|\[EN\])', text)
-    audio_chunks = []
+# The Recorder Component
+# 'pause_threshold' at 2.0 ensures it doesn't cut off if you take a quick breath
+# but stops once you stop sending audio data (releasing the click)
+audio_bytes = audio_recorder(
+    text="Hold to speak",
+    recording_color="#e8b62c",
+    neutral_color="#00a884", # WhatsApp Green
+    icon_size="3x",
+    pause_threshold=2.0 
+)
 
-    current_lang = "es"
-    current_tld = "es"
-
-    for chunk in chunks:
-        if chunk == "[ES]":
-            current_lang, current_tld = "es", "es"
-            continue
-        elif chunk == "[EN]":
-            current_lang, current_tld = "en", "com"
-            continue
-
-        if chunk.strip():
-            tts = gTTS(chunk.strip(), lang=current_lang, tld=current_tld)
-            with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                tts.save(tmp.name)
-                with open(tmp.name, "
+# Playback Logic
+if audio_bytes:
+    st.success("Recording captured!")
+    st.audio(audio_bytes, format="audio/wav")
+    
+    # Option to download the file
+    st.download_button(
+        label="Download Recording",
+        data=audio_bytes,
+        file_name="my_voice_message.wav",
+        mime="audio/wav"
+    )
 
