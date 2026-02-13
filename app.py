@@ -1,38 +1,64 @@
+import sys
+try:
+    import audioop
+except ImportError:
+    import audioop_lts as audioop
+    sys.modules["audioop"] = audioop
+
+# NOW you can keep the rest of your imports...
 import streamlit as st
+from pydub import AudioSegment
+
+import streamlit as st
+import base64, io, os, uuid
 from openai import OpenAI
-import tempfile
-import io
+from gtts import gTTS
+from pydub import AudioSegment
 
-st.title("🎙 Simple Audio Recorder + Whisper")
+# 1. SETUP
+# This pulls the key from your Advanced Settings > Secrets
+client = OpenAI(api_key=st.secrets["Lucas13"])
 
-# Ask user to upload or record audio
-st.write("Record a short audio or upload a file (.wav, .mp3)")
+st.title("🎙️ Colab Tutor (Lucas11)")
 
-audio_file = st.file_uploader("Upload your audio", type=["wav","mp3","m4a"])
+# 2. INPUT
+# Native Streamlit microphone component
+audio_input = st.audio_input("Speak to Lucas11")
 
-# Optional: use streamlit’s experimental audio recorder
-if st.button("Record using microphone (experimental)"):
-    st.info("Recording will use your browser's microphone (experimental).")
-    st.write("Currently requires Streamlit >=1.24 and only works in some browsers.")
+if audio_input:
+    # 3. TRANSCRIPTION (Whisper API)
+    transcript = client.audio.transcriptions.create(
+        model="whisper-1", 
+        file=audio_input
+    ).text
+    
+    st.write(f"**You said:** {transcript}")
 
-# Once audio is uploaded
-if audio_file:
-    st.audio(audio_file)
+    # 4. LOGIC & AUDIO GENERATION
+    def play_combined(texts):
+        combined = AudioSegment.empty()
+        
+        for text, lang in texts:
+            # Create a unique temp file for this segment
+            fname = f"{uuid.uuid4().hex}.mp3"
+            tts = gTTS(text, lang=lang)
+            tts.save(fname)
+            
+            # Add to the mix with a small silence gap
+            combined += AudioSegment.from_mp3(fname) + AudioSegment.silent(duration=400)
+            
+            # Cleanup temp file
+            if os.path.exists(fname):
+                os.remove(fname)
+        
+        # Prepare the combined audio for Streamlit playback
+        buf = io.BytesIO()
+        combined.export(buf, format="mp3")
+        
+        # Display the text and the audio player
+        st.markdown(f"### **Lucas11:** {texts[0][0]}")
+        st.audio(buf, format="audio/mp3")
 
-    client = OpenAI(api_key=st.secrets["Lucas13"])
-    with st.spinner("Transcribing..."):
-        try:
-            # If file_uploader gives a BytesIO, use it directly
-            audio_bytes = audio_file.read()
-            audio_file_like = io.BytesIO(audio_bytes)
-            audio_file_like.name = getattr(audio_file, "name", "input.wav")
-
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file_like
-            ).text
-
-            st.write(f"**You said:** {transcript}")
-        except Exception as e:
-            st.error(f"Error transcribing audio: {e}")
-
+    # This is where you put your translation/tutor logic
+    # Currently, it just repeats what you said back to you
+    play_combined([(transcript, "en"), ("I heard you clearly.", "en")])
