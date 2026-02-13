@@ -1,28 +1,25 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import base64
-import os
 import io
 from openai import OpenAI
 
-# 1. SETUP - Use your 'Lucas11' key here
-client = OpenAI(api_key="YOUR_OPENAI_API_KEY") 
+# 1. Setup API Key
+client = OpenAI(api_key="YOUR_OPENAI_API_KEY")
 
-st.set_page_config(page_title="Colab Tutor", layout="centered")
-st.title("🎙️ Colab Tutor: Whisper Mode")
+st.title("🎙️ Colab Tutor: Whisper Fix")
 
-# 2. THE FRONTEND - Your exact "Hold to Speak" logic
+# 2. JavaScript with a "Trigger" signal
 st_bridge_js = """
-<div style="display: flex; flex-direction: column; align-items: center;">
-    <button id="ptt" style="background: #2ecc71; color: white; border: none; padding: 20px; border-radius: 50%; cursor: pointer; width: 100px; height: 100px; outline: none; user-select: none; transition: 0.2s;">
+<div style="text-align: center;">
+    <button id="ptt" style="background: #2ecc71; color: white; border: none; width: 100px; height: 100px; border-radius: 50%; cursor: pointer;">
         <svg viewBox="0 0 24 24" width="40" height="40" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
     </button>
-    <p id="status" style="margin-top: 10px; font-weight: bold; color: #2ecc71;">READY</p>
+    <p id="status" style="color: #2ecc71; font-weight: bold; margin-top: 10px;">READY</p>
 </div>
 
 <script>
     const btn = document.getElementById('ptt');
-    const status = document.getElementById('status');
     let mediaRecorder, chunks = [];
 
     btn.onmousedown = async () => {
@@ -36,54 +33,52 @@ st_bridge_js = """
             reader.readAsDataURL(blob);
             reader.onloadend = () => {
                 const b64 = reader.result.split(',')[1];
-                // STREAMLIT BRIDGE: This sends data to the 'audio_hex' widget
-                window.parent.postMessage({type: 'streamlit:set_widget_value', data: b64, key: 'audio_hex'}, '*');
+                // Update the value AND trigger a change event
+                window.parent.postMessage({
+                    type: 'streamlit:set_widget_value',
+                    data: b64,
+                    key: 'audio_input_data'
+                }, '*');
             };
         };
         mediaRecorder.start();
         btn.style.background = '#e74c3c';
-        status.innerText = 'LISTENING...';
+        document.getElementById('status').innerText = 'LISTENING...';
     };
 
     btn.onmouseup = () => {
         if(mediaRecorder) {
             mediaRecorder.stop();
             btn.style.background = '#2ecc71';
-            status.innerText = 'PROCESSING...';
+            document.getElementById('status').innerText = 'THINKING...';
         }
     };
 </script>
 """
 
-components.html(st_bridge_js, height=180)
+components.html(st_bridge_js, height=160)
 
-# 3. THE BACKEND - Your Colab Whisper Logic
-# This hidden input catches the data from the JS button
-audio_b64 = st.text_input("audio_bridge", key="audio_hex", label_visibility="collapsed")
+# 3. The Backend "Listener"
+# If this key 'audio_input_data' changes, Streamlit reruns the script
+audio_b64 = st.text_input("Bridge", key="audio_input_data", label_visibility="collapsed")
 
 if audio_b64:
+    # Immediately show that we received SOMETHING
+    st.write("✅ Audio received, transcribing...")
+    
     try:
-        # A. Decode the audio
         audio_bytes = base64.b64decode(audio_b64)
-        
-        # B. Save to a temporary file (Whisper needs a file-like object with a name)
         audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "input.wav" 
+        audio_file.name = "recording.wav"
         
-        # C. Transcribe using Whisper-1 (Your exact Colab logic)
-        with st.spinner("Whisper is thinking..."):
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=audio_file
-            ).text
-            
-            # D. Output result
-            st.markdown("### You said:")
-            st.success(transcript)
-            
+        # Use Whisper-1 (Your Colab logic)
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1", 
+            file=audio_file
+        ).text
+        
+        st.subheader("You said:")
+        st.info(transcript)
+        
     except Exception as e:
-        st.error(f"Transcription Error: {e}")
-
-# Option to reset
-if st.button("Clear"):
-    st.rerun()
+        st.error(f"Error: {e}")
