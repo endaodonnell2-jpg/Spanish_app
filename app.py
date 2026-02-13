@@ -1,10 +1,12 @@
 import sys
+import base64
 import io
 import streamlit as st
+import streamlit.components.v1 as components
 from openai import OpenAI
 from pydub import AudioSegment
 
-# Python 3.13 audio fix
+# Python 3.13 fix
 try:
     import audioop
 except ImportError:
@@ -13,25 +15,83 @@ except ImportError:
 
 client = OpenAI(api_key=st.secrets["Lucas13"])
 
-st.title("🎙️ Colab Tutor (Lucas11)")
+st.title("🎙️ Lucas11 – Hold To Speak")
 
-# ---- BUILT-IN STREAMLIT MIC ----
-audio_file = st.audio_input("Hold to speak")
+# ---- HOLD TO SPEAK COMPONENT ----
+audio_b64 = components.declare_component(
+    "hold_to_speak",
+    url=None
+)
 
-if audio_file is not None:
+audio_b64 = components.html("""
+<script src="https://unpkg.com/streamlit-component-lib@1.4.0/dist/index.js"></script>
+
+<div style="text-align:center;">
+<button id="rec"
+style="width:120px;height:120px;border-radius:60px;
+background:#00a884;color:white;font-size:16px;border:none;">
+HOLD
+</button>
+<p id="status">Hold to Speak</p>
+</div>
+
+<script>
+const btn = document.getElementById("rec");
+const status = document.getElementById("status");
+let mediaRecorder;
+let chunks = [];
+
+async function startRecording() {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    mediaRecorder = new MediaRecorder(stream);
+
+    mediaRecorder.ondataavailable = e => chunks.push(e.data);
+
+    mediaRecorder.onstop = () => {
+        const blob = new Blob(chunks, {type:'audio/webm'});
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        reader.onloadend = () => {
+            const base64 = reader.result.split(',')[1];
+            Streamlit.setComponentValue(base64);
+        };
+    };
+
+    mediaRecorder.start();
+}
+
+btn.onmousedown = async () => {
+    chunks = [];
+    btn.style.background = "red";
+    status.innerText = "Recording...";
+    await startRecording();
+};
+
+btn.onmouseup = () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+        btn.style.background = "#00a884";
+        status.innerText = "Hold to Speak";
+    }
+};
+</script>
+""", height=200)
+
+# ---- BACKEND ----
+if isinstance(audio_b64, str) and audio_b64:
 
     with st.spinner("Transcribing..."):
 
         try:
-            # Convert uploaded audio to WAV
-            audio = AudioSegment.from_file(audio_file)
+            audio_bytes = base64.b64decode(audio_b64)
+
+            audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format="webm")
 
             wav_io = io.BytesIO()
             audio.export(wav_io, format="wav")
             wav_io.seek(0)
             wav_io.name = "input.wav"
 
-            # Transcribe
             transcript = client.audio.transcriptions.create(
                 model="gpt-4o-mini-transcribe",
                 file=wav_io
@@ -42,4 +102,3 @@ if audio_file is not None:
 
         except Exception as e:
             st.error(e)
-
