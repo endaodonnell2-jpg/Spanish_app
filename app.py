@@ -4,6 +4,7 @@ import io
 import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
+from pydub import AudioSegment
 
 # 1. SETUP & PATCH
 try:
@@ -16,20 +17,16 @@ client = OpenAI(api_key=st.secrets["Lucas13"])
 
 st.set_page_config(page_title="Colab Tutor", layout="centered")
 
-# --- CSS TO HIDE THE BRIDGE ONLY ---
+# Hide the technical bridge box
 st.markdown("""
     <style>
-    /* This targets ONLY the input box with the label 'bridge' */
-    div[data-testid="stTextInput"] {
-        position: absolute;
-        top: -1000px;
-    }
+    div[data-testid="stTextInput"] { position: absolute; top: -1000px; }
     </style>
 """, unsafe_allow_html=True)
 
 st.title("🎙️ Colab Tutor")
 
-# 2. THE FRONTEND (Walkie-Talkie)
+# 2. THE FRONTEND
 st_bridge_js = """
 <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif;">
     <canvas id="visualizer" width="300" height="60" style="margin-bottom: 10px;"></canvas>
@@ -108,26 +105,32 @@ st_bridge_js = """
 
 components.html(st_bridge_js, height=220)
 
-# 3. THE BACKEND (Results Display)
-# This stays hidden off-screen via the CSS above
+# 3. THE BACKEND (The Fix)
 audio_b64 = st.text_input("bridge", key="audio_b64")
 
 if audio_b64:
-    with st.spinner("Decoding..."):
+    with st.spinner("Processing..."):
         try:
+            # 1. Convert Base64 string to Raw Bytes
             audio_bytes = base64.b64decode(audio_b64)
-            audio_file = io.BytesIO(audio_bytes)
-            audio_file.name = "input.webm"
+            raw_audio_fp = io.BytesIO(audio_bytes)
+            
+            # 2. Use Pydub to "Clean" the audio and export it as a clean WAV
+            # This is what stops the "Invalid File Format" error
+            audio = AudioSegment.from_file(raw_audio_fp)
+            clean_audio_fp = io.BytesIO()
+            audio.export(clean_audio_fp, format="wav")
+            clean_audio_fp.name = "output.wav"
+            clean_audio_fp.seek(0)
 
-            # The actual Whisper transcription call
+            # 3. Send the clean WAV to OpenAI
             response = client.audio.transcriptions.create(
                 model="whisper-1", 
-                file=audio_file
+                file=clean_audio_fp
             )
             
-            # --- THE TEXT OUTPUT ---
             st.markdown("### Transcription:")
-            st.write(response.text)  # Plain text output
+            st.write(response.text)
             
         except Exception as e:
             st.error(f"OpenAI Error: {e}")
