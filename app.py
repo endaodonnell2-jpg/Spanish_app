@@ -1,7 +1,3 @@
-from gtts import gTTS
-
-tts = gTTS("Hola, ¿cómo estás?", lang="es")
-tts.save("test.mp3")
 
 import streamlit as st
 from openai import OpenAI
