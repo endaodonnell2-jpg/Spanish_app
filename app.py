@@ -5,22 +5,19 @@ import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
 
-# 1. THE PYTHON 3.13 "PATCH" (Fixes the audio library issue)
+# 1. PATCH & SETUP
 try:
     import audioop
 except ImportError:
     import audioop_lts as audioop
     sys.modules["audioop"] = audioop
 
-# 2. SETUP
-# Uses your secret named "Lucas13"
 client = OpenAI(api_key=st.secrets["Lucas13"])
 
-st.set_page_config(page_title="Lucas11: Instant Transcriber", layout="centered")
+st.set_page_config(page_title="Lucas11", layout="centered")
 st.title("🎙️ Instant Transcriber")
-st.write("Hold the green button to speak. Release to transcribe.")
 
-# 3. THE FRONTEND (JavaScript Bridge + Visualizer)
+# 2. THE FRONTEND (Your Benchmark JS)
 st_bridge_js = """
 <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif;">
     <canvas id="visualizer" width="300" height="60" style="margin-bottom: 10px;"></canvas>
@@ -101,32 +98,34 @@ st_bridge_js = """
 </script>
 """
 
-# Render the HTML/JS Component
 components.html(st_bridge_js, height=220)
 
-# 4. THE BACKEND (Wait for the audio to cross the bridge)
-audio_b64 = st.text_input("Audio Bridge", key="audio_b64", label_visibility="collapsed")
+# 3. THE BACKEND (The Clean Output)
+# We hide the "bridge" box completely so you never see it
+if 'audio_b64' not in st.session_state:
+    st.session_state['audio_b64'] = ""
+
+# This is the "hidden" catcher
+audio_b64 = st.text_input("bridge", key="audio_b64", label_visibility="hidden")
 
 if audio_b64:
-    try:
-        with st.spinner("Whisper is transcribing..."):
-            # Decode the audio data
+    with st.spinner("Writing..."):
+        try:
             audio_bytes = base64.b64decode(audio_b64)
             audio_file = io.BytesIO(audio_bytes)
-            audio_file.name = "input_audio.webm" # OpenAI needs a filename to know the format
+            audio_file.name = "input.webm"
 
-            # Call Whisper API
+            # OpenAI Whisper Transcription
             response = client.audio.transcriptions.create(
                 model="whisper-1", 
                 file=audio_file
             )
             
-            # Output the result
-            st.subheader("Transcription:")
-            st.text_area(label="Results", value=response.text, height=200)
-            
-            if st.button("Clear Results"):
-                st.rerun()
+            # THE OUTPUT: No box, just the pure text shown on the screen
+            st.markdown("---")
+            st.write("### You said:")
+            st.info(response.text) # This creates a clean blue box with your text
+            st.markdown("---")
 
-    except Exception as e:
-        st.error(f"Error during transcription: {e}")
+        except Exception as e:
+            st.error(f"Error: {e}")
