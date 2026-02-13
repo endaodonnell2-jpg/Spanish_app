@@ -1,10 +1,9 @@
 try:
-    import streamlit
-    import gtts
+    import streamlit as st
+    from gtts import gTTS
     import pydub
-    print("All imports OK")
 except Exception as e:
-    print(e)
+    print("Failed to import a module:", e)
     
 import streamlit as st
 from openai import OpenAI
