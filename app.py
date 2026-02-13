@@ -5,7 +5,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from openai import OpenAI
 
-# 1. PATCH & SETUP
+# 1. SETUP & PATCH
 try:
     import audioop
 except ImportError:
@@ -14,10 +14,22 @@ except ImportError:
 
 client = OpenAI(api_key=st.secrets["Lucas13"])
 
-st.set_page_config(page_title="Lucas11", layout="centered")
-st.title("🎙️ Instant Transcriber")
+st.set_page_config(page_title="Colab Tutor", layout="centered")
 
-# 2. THE FRONTEND (Your Benchmark JS)
+# --- CSS TO HIDE THE BRIDGE ONLY ---
+st.markdown("""
+    <style>
+    /* This targets ONLY the input box with the label 'bridge' */
+    div[data-testid="stTextInput"] {
+        position: absolute;
+        top: -1000px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.title("🎙️ Colab Tutor")
+
+# 2. THE FRONTEND (Walkie-Talkie)
 st_bridge_js = """
 <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif;">
     <canvas id="visualizer" width="300" height="60" style="margin-bottom: 10px;"></canvas>
@@ -63,27 +75,23 @@ st_bridge_js = """
         audioChunks = [];
         btn.style.backgroundColor = '#ff4b4b';
         status.innerText = 'RECORDING...';
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            draw(stream);
-            mediaRecorder = new MediaRecorder(stream);
-            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-            mediaRecorder.onstop = () => {
-                const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                const reader = new FileReader();
-                reader.readAsDataURL(blob);
-                reader.onloadend = () => {
-                    window.parent.postMessage({
-                        type: 'streamlit:set_widget_value',
-                        data: reader.result.split(',')[1],
-                        key: 'audio_b64'
-                    }, '*');
-                };
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        draw(stream);
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+            reader.onloadend = () => {
+                window.parent.postMessage({
+                    type: 'streamlit:set_widget_value',
+                    data: reader.result.split(',')[1],
+                    key: 'audio_b64'
+                }, '*');
             };
-            mediaRecorder.start();
-        } catch (err) {
-            status.innerText = 'MIC ERROR: ' + err.message;
-        }
+        };
+        mediaRecorder.start();
     };
 
     btn.onmouseup = btn.onmouseleave = btn.ontouchend = () => {
@@ -100,32 +108,26 @@ st_bridge_js = """
 
 components.html(st_bridge_js, height=220)
 
-# 3. THE BACKEND (The Clean Output)
-# We hide the "bridge" box completely so you never see it
-if 'audio_b64' not in st.session_state:
-    st.session_state['audio_b64'] = ""
-
-# This is the "hidden" catcher
-audio_b64 = st.text_input("bridge", key="audio_b64", label_visibility="hidden")
+# 3. THE BACKEND (Results Display)
+# This stays hidden off-screen via the CSS above
+audio_b64 = st.text_input("bridge", key="audio_b64")
 
 if audio_b64:
-    with st.spinner("Writing..."):
+    with st.spinner("Decoding..."):
         try:
             audio_bytes = base64.b64decode(audio_b64)
             audio_file = io.BytesIO(audio_bytes)
             audio_file.name = "input.webm"
 
-            # OpenAI Whisper Transcription
+            # The actual Whisper transcription call
             response = client.audio.transcriptions.create(
                 model="whisper-1", 
                 file=audio_file
             )
             
-            # THE OUTPUT: No box, just the pure text shown on the screen
-            st.markdown("---")
-            st.write("### You said:")
-            st.info(response.text) # This creates a clean blue box with your text
-            st.markdown("---")
-
+            # --- THE TEXT OUTPUT ---
+            st.markdown("### Transcription:")
+            st.write(response.text)  # Plain text output
+            
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"OpenAI Error: {e}")
