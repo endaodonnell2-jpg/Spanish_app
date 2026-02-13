@@ -25,68 +25,76 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+st.title("🎙️ Colab Tutor (Lucas11)")
+
+# Initialize Session State
 if 'processing' not in st.session_state:
     st.session_state.processing = False
 
-st.title("🎙️ Colab Tutor (Lucas11)")
-
-# 2. THE LOCK
-if st.session_state.processing:
-    st.write("✨ **Lucas11 is speaking...**")
-    progress_bar = st.progress(0)
-else:
-    audio_input = st.audio_input("Talk to Lucas11", key="lucas_mic")
+# 2. THE PROMPT (The Mic)
+# We keep the mic visible as the default state
+if not st.session_state.processing:
+    audio_input = st.audio_input("Speak to Lucas11 now:", key="lucas_mic")
     
     if audio_input:
         st.session_state.processing = True
         st.rerun()
 
-# 3. THE ACTION
+# 3. THE PROGRAM (Runs only after you speak)
 if st.session_state.processing and st.session_state.get('lucas_mic'):
     try:
         # A. Transcribe
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1", 
-            file=st.session_state.lucas_mic
-        ).text
+        with st.status("Listening to your voice...", expanded=False):
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=st.session_state.lucas_mic
+            ).text
+        
         st.write(f"**You:** {transcript}")
 
-        # B. Brain
+        # B. AI Brain
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are Lucas11. Concise/witty. Max 15 words."},
+                {"role": "system", "content": "You are Lucas11. Concise/witty. Max 12 words."},
                 {"role": "user", "content": transcript}
             ]
         )
         ai_text = response.choices[0].message.content
 
-        # C. Speak & Measure
+        # C. Voice Generation
         fname = f"{uuid.uuid4().hex}.mp3"
         gTTS(ai_text, lang="en").save(fname)
         
         audio_seg = AudioSegment.from_mp3(fname)
-        duration_seconds = len(audio_seg) / 1000.0
+        duration = len(audio_seg) / 1000.0
         
         buf = io.BytesIO()
         audio_seg.export(buf, format="mp3")
-        
         if os.path.exists(fname): os.remove(fname)
 
+        # D. Speak & Auto-Unlock with Progress Bar
         st.markdown(f"### **Lucas11:** {ai_text}")
         st.audio(buf, format="audio/mp3", autoplay=True)
-
-        # D. PROGRESS BAR TIMER (Visual Auto-Unlock)
-        # Updates the bar in increments so it looks smooth
+        
+        # This bar prevents the user from speaking until Lucas is done
+        st.write("✨ Lucas11 is speaking...")
+        bar = st.progress(0)
         steps = 20
         for i in range(steps + 1):
-            time.sleep(duration_seconds / steps)
-            progress_bar.progress(i / steps)
+            time.sleep(duration / steps)
+            bar.progress(i / steps)
         
-        # Reset and Rerun
+        # E. RESET FOR NEXT ROUND
+        st.session_state.processing = False
+        st.session_state.lucas_mic = None # Clear the recording
+        st.rerun()
+
+    except Exception as e:
+        st.error(f"Error: {e}")
         st.session_state.processing = False
         st.session_state.lucas_mic = None
-        st.rerun()
+        st.button("Try Again")
 
     except Exception as e:
         st.error(f"Error: {e}")
