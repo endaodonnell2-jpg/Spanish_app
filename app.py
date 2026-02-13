@@ -1,17 +1,17 @@
-import sys, time, io, os, uuid, re, base64
-try:
-    import audioop
-except ImportError:
-    import audioop_lts as audioop
-    sys.modules["audioop"] = audioop
 
 import streamlit as st
-import streamlit.components.v1 as components
 from openai import OpenAI
 from gtts import gTTS
 from pydub import AudioSegment
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, ClientSettings
+import threading
+import queue
+import uuid
+import io
+import os
+import time
 
-# 1. SETUP & VERB LIST
+# 1️⃣ SETUP
 client = OpenAI(api_key=st.secrets["Lucas13"])
 
 jugar_verbs = [
@@ -33,7 +33,7 @@ jugar_verbs = [
     ("She teaches Maths", "Ella enseña matemáticas"),
 ]
 
-# Initialize Session States
+# SESSION STATE
 if 'step' not in st.session_state:
     st.session_state.step = 0
 if 'failed_steps' not in st.session_state:
@@ -42,129 +42,116 @@ if 'review_mode' not in st.session_state:
     st.session_state.review_mode = False
 if 'lock' not in st.session_state:
     st.session_state.lock = False
+if 'audio_queue' not in st.session_state:
+    st.session_state.audio_queue = queue.Queue()
 
 st.title("🎙️ Colab Tutor: Lucas11")
 st.markdown("<style>audio { display: none !important; }</style>", unsafe_allow_html=True)
 
-# 2. BILINGUAL AUDIO ENGINE
+# 2️⃣ BILINGUAL AUDIO ENGINE
 def speak_bilingual(text):
-    parts = re.split(r'(\[ES\]|\[EN\])', text)
+    parts = text.replace("[ES]", "[ES]").replace("[EN]", "[EN]").split("[ES]")  # keep for split
     combined = AudioSegment.empty()
     current_lang, current_tld = "es", "es"
     for part in parts:
-        if "[ES]" in part:
-            current_lang, current_tld = "es", "es"
-        elif "[EN]" in part:
+        if "[EN]" in part:
             current_lang, current_tld = "en", "com"
         elif part.strip():
             fname = f"temp_{uuid.uuid4().hex}.mp3"
             gTTS(part.strip(), lang=current_lang, tld=current_tld).save(fname)
             combined += AudioSegment.from_mp3(fname)
-            if os.path.exists(fname):
-                os.remove(fname)
+            os.remove(fname)
     buf = io.BytesIO()
     combined.export(buf, format="mp3")
     st.audio(buf, format="audio/mp3", autoplay=True)
     return len(combined) / 1000.0
 
-# 🎤 2.5 SECOND TAP RECORDER
-def tap_recorder():
-    components.html("""
-    <script>
-    let mediaRecorder;
-    let chunks = [];
+# 3️⃣ WEBCAM/WEBAUDIO PROCESSOR
+class AudioRecorder(AudioProcessorBase):
+    def __init__(self):
+        self.frames = []
+        self.recording = False
+        self.lock = threading.Lock()
 
-    async function startRecording() {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
+    def recv(self, frame):
+        if self.recording:
+            self.frames.append(frame.to_ndarray())
+        return frame
 
-        mediaRecorder.ondataavailable = e => chunks.push(e.data);
+    def start_recording(self):
+        with self.lock:
+            self.frames = []
+            self.recording = True
+        # auto-stop after 2.5 seconds
+        threading.Timer(2.5, self.stop_recording).start()
 
-        mediaRecorder.onstop = e => {
-            const blob = new Blob(chunks, { type: "audio/webm" });
-            const reader = new FileReader();
-            reader.readAsDataURL(blob);
-            reader.onloadend = function() {
-                const base64data = reader.result;
-                const input = document.getElementById("audio_data_input");
-                input.value = base64data;
-                document.getElementById("audio_form").submit();
-            };
-        };
+    def stop_recording(self):
+        with self.lock:
+            self.recording = False
+            if self.frames:
+                # convert raw frames to WAV bytes
+                import soundfile as sf
+                buf = io.BytesIO()
+                data = b''.join([f.tobytes() for f in self.frames])
+                # save as WAV
+                sf.write(buf, b''.join([f for f in self.frames]), 44100, format='WAV')
+                buf.seek(0)
+                st.session_state.audio_queue.put(buf)
 
-        chunks = [];
-        mediaRecorder.start();
-
-        setTimeout(() => {
-            if (mediaRecorder.state === "recording") {
-                mediaRecorder.stop();
-            }
-        }, 2500);
-    }
-    </script>
-
-    <form id="audio_form" method="get">
-        <input type="hidden" name="audio_data" id="audio_data_input"/>
-        <button type="button"
-            ontouchstart="startRecording()"
-            style="padding:15px 25px;
-                   font-size:18px;
-                   border-radius:10px;
-                   background:#ff4b4b;
-                   color:white;
-                   border:none;">
-            🎤 Tap & Speak (2.5s)
-        </button>
-    </form>
-    """, height=140)
-
-# 3. TEACHER LOGIC
-queue = st.session_state.failed_steps if st.session_state.review_mode else list(range(len(jugar_verbs)))
-total_in_queue = len(queue)
+# 4️⃣ LESSON LOOP
+queue_idx = st.session_state.failed_steps if st.session_state.review_mode else list(range(len(jugar_verbs)))
+total_in_queue = len(queue_idx)
 
 if st.session_state.step < total_in_queue:
-    current_idx = queue[st.session_state.step]
+    current_idx = queue_idx[st.session_state.step]
     en_q, es_a = jugar_verbs[current_idx]
-    
+
     mode_label = "Review Round" if st.session_state.review_mode else "Main Lesson"
     st.markdown(f"### {mode_label}: {st.session_state.step + 1} / {total_in_queue}")
 
     if not st.session_state.lock:
         st.info(f"How do you say: '{en_q}'?")
-        
         if f"asked_{current_idx}_{st.session_state.review_mode}" not in st.session_state:
             speak_bilingual(f"[EN] How do you say: {en_q}?")
             st.session_state[f"asked_{current_idx}_{st.session_state.review_mode}"] = True
 
-        tap_recorder()
+        # Start WebRTC
+        ctx = webrtc_streamer(
+            key=f"rec_{current_idx}",
+            mode="SENDONLY",
+            audio_processor_factory=AudioRecorder,
+            client_settings=ClientSettings(
+                media_stream_constraints={"audio": True, "video": False},
+            ),
+            async_processing=True
+        )
 
-        audio_data = st.experimental_get_query_params().get("audio_data")
-        if audio_data:
-            header, encoded = audio_data[0].split(",", 1)
-            audio_bytes = base64.b64decode(encoded)
-            st.session_state.current_audio = io.BytesIO(audio_bytes)
-            st.session_state.lock = True
-            st.experimental_set_query_params()
-            st.rerun()
+        if ctx.audio_processor:
+            if st.button("🎤 Tap to Record 2.5s"):
+                ctx.audio_processor.start_recording()
+                st.session_state.lock = True
 
-    if st.session_state.lock and st.session_state.get('current_audio'):
+    # Check if audio finished
+    if not st.session_state.audio_queue.empty():
+        audio_buf = st.session_state.audio_queue.get()
         transcript = client.audio.transcriptions.create(
             model="whisper-1",
-            file=st.session_state.current_audio,
+            file=audio_buf,
             language="es"
         ).text
 
         st.success(f"**You said:** {transcript}")
-prompt = f"""User: "{transcript}". 
-Correct: "{es_a}". 
-Reply only: 
-"[ES] ¡Correcto! [ES] {es_a}" 
-OR 
+
+        prompt = f"""User: "{transcript}".
+Correct: "{es_a}".
+Reply only:
+"[ES] ¡Correcto! [ES] {es_a}"
+OR
 "[ES] ¡Incorrecto! [EN] It's more like this: [ES] {es_a}"
 """
         res = client.chat.completions.create(
             model="gpt-4o",
-            messages=[{"role":"user","content":prompt}]
+            messages=[{"role": "user", "content": prompt}]
         ).choices[0].message.content
 
         if "¡Incorrecto!" in res and not st.session_state.review_mode:
@@ -173,14 +160,13 @@ OR
 
         clean_res = res.replace('[ES]','').replace('[EN]','')
         st.markdown(f"**Lucas11:** {clean_res}")
-        
         dur = speak_bilingual(res)
-        
+
         bar = st.progress(0, text="Lucas is speaking...")
         for i in range(101):
             time.sleep(dur / 100)
             bar.progress(i)
-        
+
         st.session_state.step += 1
         st.session_state.lock = False
         st.rerun()
