@@ -1,6 +1,6 @@
 streamlit
 openai
-gTTS
 pydub
 audioop-lts
+streamlit-mic-recorder
 #
