@@ -1,59 +1,55 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import base64
-import speech_recognition as sr
+import os
 import io
+from openai import OpenAI
+
+# 1. SETUP - Use your 'Lucas11' key here
+client = OpenAI(api_key="YOUR_OPENAI_API_KEY") 
 
 st.set_page_config(page_title="Colab Tutor", layout="centered")
+st.title("🎙️ Colab Tutor: Whisper Mode")
 
-st.title("🎙️ English Practice")
-
-# 1. THE FRONTEND: Pure Hold-to-Speak (No Changes to the Feel)
+# 2. THE FRONTEND - Your exact "Hold to Speak" logic
 st_bridge_js = """
 <div style="display: flex; flex-direction: column; align-items: center;">
-    <button id="mic" style="width: 100px; height: 100px; border-radius: 50%; background-color: #00a884; border: none; cursor: pointer; outline: none;">
-        <svg viewBox="0 0 24 24" width="50" height="50" fill="white">
-            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-        </svg>
+    <button id="ptt" style="background: #2ecc71; color: white; border: none; padding: 20px; border-radius: 50%; cursor: pointer; width: 100px; height: 100px; outline: none; user-select: none; transition: 0.2s;">
+        <svg viewBox="0 0 24 24" width="40" height="40" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
     </button>
-    <p id="status" style="margin-top: 15px; font-family: sans-serif; font-weight: bold; color: #555;">HOLD TO SPEAK</p>
+    <p id="status" style="margin-top: 10px; font-weight: bold; color: #2ecc71;">READY</p>
 </div>
 
 <script>
-    const btn = document.getElementById('mic');
+    const btn = document.getElementById('ptt');
     const status = document.getElementById('status');
-    let mediaRecorder, audioChunks = [];
+    let mediaRecorder, chunks = [];
 
-    btn.onmousedown = btn.ontouchstart = async (e) => {
-        e.preventDefault();
-        audioChunks = [];
+    btn.onmousedown = async () => {
+        chunks = [];
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaRecorder = new MediaRecorder(stream);
-        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.ondataavailable = e => chunks.push(e.data);
         mediaRecorder.onstop = () => {
-            const blob = new Blob(audioChunks, { type: 'audio/wav' });
+            const blob = new Blob(chunks, { type: 'audio/wav' });
             const reader = new FileReader();
             reader.readAsDataURL(blob);
             reader.onloadend = () => {
                 const b64 = reader.result.split(',')[1];
-                // Direct update to Streamlit
-                window.parent.postMessage({
-                    type: 'streamlit:set_widget_value',
-                    data: b64,
-                    key: 'raw_audio_b64'
-                }, '*');
+                // STREAMLIT BRIDGE: This sends data to the 'audio_hex' widget
+                window.parent.postMessage({type: 'streamlit:set_widget_value', data: b64, key: 'audio_hex'}, '*');
             };
         };
         mediaRecorder.start();
-        btn.style.backgroundColor = '#ff4b4b';
+        btn.style.background = '#e74c3c';
         status.innerText = 'LISTENING...';
     };
 
-    btn.onmouseup = btn.ontouchend = btn.onmouseleave = () => {
-        if(mediaRecorder?.state === 'recording') {
+    btn.onmouseup = () => {
+        if(mediaRecorder) {
             mediaRecorder.stop();
-            btn.style.backgroundColor = '#00a884';
-            status.innerText = 'TRANSCRIBING...';
+            btn.style.background = '#2ecc71';
+            status.innerText = 'PROCESSING...';
         }
     };
 </script>
@@ -61,37 +57,33 @@ st_bridge_js = """
 
 components.html(st_bridge_js, height=180)
 
-# 2. THE BACKEND: Force Transcription
-# This catches the 'raw_audio_b64' from the JS
-audio_input = st.text_input("hidden", key="raw_audio_b64", label_visibility="collapsed")
+# 3. THE BACKEND - Your Colab Whisper Logic
+# This hidden input catches the data from the JS button
+audio_b64 = st.text_input("audio_bridge", key="audio_hex", label_visibility="collapsed")
 
-if audio_input:
-    with st.spinner("Decoding..."):
-        try:
-            # Step 1: Decode the base64 string
-            audio_bytes = base64.b64decode(audio_input)
+if audio_b64:
+    try:
+        # A. Decode the audio
+        audio_bytes = base64.b64decode(audio_b64)
+        
+        # B. Save to a temporary file (Whisper needs a file-like object with a name)
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = "input.wav" 
+        
+        # C. Transcribe using Whisper-1 (Your exact Colab logic)
+        with st.spinner("Whisper is thinking..."):
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file
+            ).text
             
-            # Step 2: Initialize recognizer with ZERO filtering (Let it hear everything)
-            r = sr.Recognizer()
+            # D. Output result
+            st.markdown("### You said:")
+            st.success(transcript)
             
-            # Step 3: Convert bytes to a format the Recognizer understands
-            audio_file = io.BytesIO(audio_bytes)
-            with sr.AudioFile(audio_file) as source:
-                audio_data = r.record(source)
-                
-                # Step 4: Hit Google's API hard
-                text = r.recognize_google(audio_data, language="en-US")
-                
-                # Show the result clearly
-                st.markdown("---")
-                st.subheader("Transcription:")
-                st.success(text)
-                
-        except sr.UnknownValueError:
-            st.error("Could not understand audio. Try speaking closer to the mic.")
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
+    except Exception as e:
+        st.error(f"Transcription Error: {e}")
 
-# Clear button
-if st.button("Clear Screen"):
+# Option to reset
+if st.button("Clear"):
     st.rerun()
