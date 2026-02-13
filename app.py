@@ -1,4 +1,11 @@
-
+try:
+    import streamlit
+    import gtts
+    import pydub
+    print("All imports OK")
+except Exception as e:
+    print(e)
+    
 import streamlit as st
 from openai import OpenAI
 from gtts import gTTS
