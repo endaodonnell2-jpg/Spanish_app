@@ -11,7 +11,7 @@ except ImportError:
     st.stop()
 
 # 1. SETUP
-client = OpenAI(api_key="YOUR_OPENAI_API_KEY")
+client = OpenAI(api_key="Lucas13")
 
 st.title("🎙️ Colab Tutor (Lucas11)")
 
