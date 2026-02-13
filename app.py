@@ -155,8 +155,13 @@ if st.session_state.step < total_in_queue:
         ).text
 
         st.success(f"**You said:** {transcript}")
-
-        prompt = f'User: "{transcript}". Correct: "{es_a}". Reply only: "[ES] ¡Correcto! [ES] {es_a}" OR "[ES] ¡Incorrecto! [EN] It\\'s more like this: [ES] {es_a}"'
+prompt = f"""User: "{transcript}". 
+Correct: "{es_a}". 
+Reply only: 
+"[ES] ¡Correcto! [ES] {es_a}" 
+OR 
+"[ES] ¡Incorrecto! [EN] It's more like this: [ES] {es_a}"
+"""
         res = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role":"user","content":prompt}]
