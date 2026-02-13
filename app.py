@@ -113,4 +113,3 @@ if audio_b64:
         except Exception as e:
             st.error(f"Error transcribing audio: {e}")
 
-
