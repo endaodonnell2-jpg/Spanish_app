@@ -3,4 +3,5 @@ openai
 pydub
 audioop-lts
 streamlit-mic-recorder
+gTTS
 #
