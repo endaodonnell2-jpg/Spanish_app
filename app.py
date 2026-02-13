@@ -1,16 +1,26 @@
+import sys
+import base64
+import io
 import streamlit as st
 import streamlit.components.v1 as components
-import base64, io
 from openai import OpenAI
 
-# 1. SETUP
+# 1. THE PYTHON 3.13 "PATCH" (Fixes the audio library issue)
+try:
+    import audioop
+except ImportError:
+    import audioop_lts as audioop
+    sys.modules["audioop"] = audioop
+
+# 2. SETUP
+# Uses your secret named "Lucas13"
 client = OpenAI(api_key=st.secrets["Lucas13"])
 
-st.set_page_config(page_title="Lucas11: Transcriber", layout="centered")
+st.set_page_config(page_title="Lucas11: Instant Transcriber", layout="centered")
 st.title("🎙️ Instant Transcriber")
-st.write("Hold to record. Release to see your text.")
+st.write("Hold the green button to speak. Release to transcribe.")
 
-# 2. THE FRONTEND (Your Benchmark JS)
+# 3. THE FRONTEND (JavaScript Bridge + Visualizer)
 st_bridge_js = """
 <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif;">
     <canvas id="visualizer" width="300" height="60" style="margin-bottom: 10px;"></canvas>
@@ -30,7 +40,7 @@ st_bridge_js = """
     let mediaRecorder, audioChunks = [], audioCtx, analyser, animId;
 
     function draw(stream) {
-        audioCtx = new AudioContext();
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const source = audioCtx.createMediaStreamSource(stream);
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = 64;
@@ -56,23 +66,27 @@ st_bridge_js = """
         audioChunks = [];
         btn.style.backgroundColor = '#ff4b4b';
         status.innerText = 'RECORDING...';
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        draw(stream);
-        mediaRecorder = new MediaRecorder(stream);
-        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-        mediaRecorder.onstop = () => {
-            const blob = new Blob(audioChunks, { type: 'audio/webm' });
-            const reader = new FileReader();
-            reader.readAsDataURL(blob);
-            reader.onloadend = () => {
-                window.parent.postMessage({
-                    type: 'streamlit:set_widget_value',
-                    data: reader.result.split(',')[1],
-                    key: 'audio_b64'
-                }, '*');
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            draw(stream);
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                const reader = new FileReader();
+                reader.readAsDataURL(blob);
+                reader.onloadend = () => {
+                    window.parent.postMessage({
+                        type: 'streamlit:set_widget_value',
+                        data: reader.result.split(',')[1],
+                        key: 'audio_b64'
+                    }, '*');
+                };
             };
-        };
-        mediaRecorder.start();
+            mediaRecorder.start();
+        } catch (err) {
+            status.innerText = 'MIC ERROR: ' + err.message;
+        }
     };
 
     btn.onmouseup = btn.onmouseleave = btn.ontouchend = () => {
@@ -87,27 +101,32 @@ st_bridge_js = """
 </script>
 """
 
+# Render the HTML/JS Component
 components.html(st_bridge_js, height=220)
 
-# 3. THE BACKEND (Transcription only)
+# 4. THE BACKEND (Wait for the audio to cross the bridge)
 audio_b64 = st.text_input("Audio Bridge", key="audio_b64", label_visibility="collapsed")
 
 if audio_b64:
-    with st.spinner("Transcribing..."):
-        # Convert base64 string back to audio bytes
-        audio_bytes = base64.b64decode(audio_b64)
-        audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "temp_audio.webm"
+    try:
+        with st.spinner("Whisper is transcribing..."):
+            # Decode the audio data
+            audio_bytes = base64.b64decode(audio_b64)
+            audio_file = io.BytesIO(audio_bytes)
+            audio_file.name = "input_audio.webm" # OpenAI needs a filename to know the format
 
-        # Whisper API Call
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1", 
-            file=audio_file
-        ).text
-        
-        # Display the result in a clean box
-        st.subheader("Transcription:")
-        st.text_area(label="Results", value=transcript, height=150, label_visibility="collapsed")
-        
-        if st.button("Clear"):
-            st.rerun()
+            # Call Whisper API
+            response = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file
+            )
+            
+            # Output the result
+            st.subheader("Transcription:")
+            st.text_area(label="Results", value=response.text, height=200)
+            
+            if st.button("Clear Results"):
+                st.rerun()
+
+    except Exception as e:
+        st.error(f"Error during transcription: {e}")
