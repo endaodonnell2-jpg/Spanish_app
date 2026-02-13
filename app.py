@@ -1,6 +1,9 @@
 import streamlit as st
 import base64
+import io
+from openai import OpenAI
 
+# --- Streamlit UI ---
 st.title("🎙 Hold-to-Speak Demo")
 
 st.markdown("""
@@ -42,14 +45,17 @@ async function startRecording() {
         reader.readAsDataURL(blob);
         reader.onloadend = () => {
             const base64 = reader.result.split(',')[1];
-            // send Base64 to Streamlit
-            window.parent.postMessage({type:'streamlit:set_component_value', key:'audio_bridge', value:base64}, '*');
+            window.parent.postMessage({
+                type:'streamlit:set_component_value',
+                key:'audio_bridge',
+                value:base64
+            }, '*');
         };
     };
 
     mediaRecorder.start();
 
-    // visualizer
+    // Visualizer
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     const render = () => {
         animId = requestAnimationFrame(render);
@@ -86,10 +92,24 @@ btn.onmouseup = btn.onmouseleave = btn.ontouchend = () => {
 </script>
 """, unsafe_allow_html=True)
 
-# Invisible input to catch the Base64 audio
-audio_b64 = st.text_input("", key="audio_bridge", label_visibility="collapsed")
+# --- Invisible input to catch Base64 audio ---
+audio_b64 = st.text_input("Audio bridge", key="audio_bridge", label_visibility="collapsed")
 
+# --- OpenAI Whisper transcription ---
 if audio_b64:
-    st.success("Audio captured! Base64 length: " + str(len(audio_b64)))
+    client = OpenAI(api_key=st.secrets["Lucas13"])
+    with st.spinner("Transcribing..."):
+        try:
+            audio_bytes = base64.b64decode(audio_b64)
+            audio_file = io.BytesIO(audio_bytes)
+            audio_file.name = "input.webm"
 
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file
+            ).text
+
+            st.write(f"**You said:** {transcript}")
+        except Exception as e:
+            st.error(f"Error transcribin
 
