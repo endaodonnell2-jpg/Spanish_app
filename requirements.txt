@@ -9,5 +9,4 @@ SpeechRecognition
 PyAudio
 pydub
 gTTS
-openai
-streamlit
+
