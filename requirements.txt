@@ -1,5 +1,6 @@
 streamlit
-openai
-gTTS
-pydub
+streamlit-webrtc
 numpy
+matplotlib
+soundfile
+av
