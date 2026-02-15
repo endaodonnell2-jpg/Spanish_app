@@ -1,62 +1,79 @@
 
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, ClientSettings
+import av
 import numpy as np
-import sounddevice as sd
-import soundfile as sf
 import tempfile
+import soundfile as sf
 import time
-import matplotlib.pyplot as plt
 
-st.title("Interactive Audio Recorder 🎙️")
+st.title("🎙️ 3-Second Auto Audio Recorder")
 
-# Recording parameters
-duration = st.slider("Recording duration (seconds)", 1, 10, 5)
-fs = 44100  # Sampling rate
+# Client settings
+WEBRTC_CLIENT_SETTINGS = ClientSettings(
+    media_stream_constraints={"audio": True, "video": False},
+    rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+)
 
-# State to track recording
-if "is_recording" not in st.session_state:
-    st.session_state.is_recording = False
+# Session state
+if "audio_data" not in st.session_state:
+    st.session_state.audio_data = []
 
-# Function to record audio
-def record_audio():
-    st.session_state.is_recording = True
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-        filename = tmp.name
-        # Record audio
-        recording = sd.rec(int(duration * fs), samplerate=fs, channels=1)
-        sd.wait()
-        sf.write(filename, recording, fs)
-    st.session_state.is_recording = False
-    return filename, recording
+# Audio frame callback
+def audio_callback(frame: av.AudioFrame) -> av.AudioFrame:
+    audio = frame.to_ndarray()
+    st.session_state.audio_data.append(audio)
+    return frame
 
-# Dynamic Record Button
-record_button_style = """
-    <style>
-    .stButton>button {
-        height: 80px;   /* Double height */
-        width: 80px;    /* Double width */
-        font-size: 20px;
-        border-radius: 50%;
-        background-color: %s;
-        color: white;
-    }
-    </style>
+# Record button with red while recording
+button_style = """
+<style>
+.stButton>button {{
+    height: 80px;
+    width: 80px;
+    font-size: 20px;
+    border-radius: 50%;
+    background-color: {};
+    color: white;
+}}
+</style>
 """
-button_color = "red" if st.session_state.is_recording else "#4CAF50"
-st.markdown(record_button_style % button_color, unsafe_allow_html=True)
 
-# Record button
-if st.button("Record"):
-    filename, recording = record_audio()
+def start_recording():
+    st.session_state.audio_data = []
+    webrtc_ctx.start()
+    st.session_state.recording = True
+    time.sleep(3)  # Record for 3 seconds
+    webrtc_ctx.stop()
+    st.session_state.recording = False
     st.success("Recording complete! ✅")
-    
-    # Play back audio
-    st.audio(filename)
-    
-    # Plot waveform
-    fig, ax = plt.subplots(figsize=(10, 2))
-    ax.plot(np.linspace(0, duration, len(recording)), recording)
-    ax.set_xlabel("Time [s]")
-    ax.set_ylabel("Amplitude")
-    ax.set_title("Waveform")
-    st.pyplot(fig)
+
+if "recording" not in st.session_state:
+    st.session_state.recording = False
+
+# WebRTC streamer (sendonly mode)
+webrtc_ctx = webrtc_streamer(
+    key="audio-recorder",
+    mode=WebRtcMode.SENDONLY,
+    client_settings=WEBRTC_CLIENT_SETTINGS,
+    audio_frame_callback=audio_callback,
+    async_processing=True,
+    video_frame_callback=None,
+    audio_receiver_size=256,
+)
+
+# Update button color dynamically
+button_color = "red" if st.session_state.recording else "#4CAF50"
+st.markdown(button_style.format(button_color), unsafe_allow_html=True)
+
+# Record button triggers 3-second recording
+if st.button("Record (3 sec)"):
+    start_recording()
+
+# Save and playback
+if st.session_state.audio_data:
+    audio_array = np.concatenate(st.session_state.audio_data, axis=1)[0]
+    # Save to WAV
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        sf.write(tmp.name, audio_array, 44100)
+        st.audio(tmp.name)
