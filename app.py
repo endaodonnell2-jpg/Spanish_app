@@ -1,11 +1,7 @@
-    
 import streamlit as st
 from openai import OpenAI
 from gtts import gTTS
 from pydub import AudioSegment
-from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, ClientSettings
-import threading
-import queue
 import uuid
 import io
 import os
@@ -42,17 +38,16 @@ if 'review_mode' not in st.session_state:
     st.session_state.review_mode = False
 if 'lock' not in st.session_state:
     st.session_state.lock = False
-if 'audio_queue' not in st.session_state:
-    st.session_state.audio_queue = queue.Queue()
 
 st.title("🎙️ Colab Tutor: Lucas11")
 st.markdown("<style>audio { display: none !important; }</style>", unsafe_allow_html=True)
 
 # 2️⃣ BILINGUAL AUDIO ENGINE
 def speak_bilingual(text):
-    parts = text.replace("[ES]", "[ES]").replace("[EN]", "[EN]").split("[ES]")  # keep for split
+    parts = text.replace("[ES]", "[ES]").replace("[EN]", "[EN]").split("[ES]")
     combined = AudioSegment.empty()
     current_lang, current_tld = "es", "es"
+
     for part in parts:
         if "[EN]" in part:
             current_lang, current_tld = "en", "com"
@@ -61,48 +56,18 @@ def speak_bilingual(text):
             gTTS(part.strip(), lang=current_lang, tld=current_tld).save(fname)
             combined += AudioSegment.from_mp3(fname)
             os.remove(fname)
+
     buf = io.BytesIO()
     combined.export(buf, format="mp3")
     st.audio(buf, format="audio/mp3", autoplay=True)
     return len(combined) / 1000.0
 
-# 3️⃣ WEBCAM/WEBAUDIO PROCESSOR
-class AudioRecorder(AudioProcessorBase):
-    def __init__(self):
-        self.frames = []
-        self.recording = False
-        self.lock = threading.Lock()
-
-    def recv(self, frame):
-        if self.recording:
-            self.frames.append(frame.to_ndarray())
-        return frame
-
-    def start_recording(self):
-        with self.lock:
-            self.frames = []
-            self.recording = True
-        # auto-stop after 2.5 seconds
-        threading.Timer(2.5, self.stop_recording).start()
-
-    def stop_recording(self):
-        with self.lock:
-            self.recording = False
-            if self.frames:
-                # convert raw frames to WAV bytes
-                import soundfile as sf
-                buf = io.BytesIO()
-                data = b''.join([f.tobytes() for f in self.frames])
-                # save as WAV
-                sf.write(buf, b''.join([f for f in self.frames]), 44100, format='WAV')
-                buf.seek(0)
-                st.session_state.audio_queue.put(buf)
-
-# 4️⃣ LESSON LOOP
+# 3️⃣ LESSON LOOP
 queue_idx = st.session_state.failed_steps if st.session_state.review_mode else list(range(len(jugar_verbs)))
 total_in_queue = len(queue_idx)
 
 if st.session_state.step < total_in_queue:
+
     current_idx = queue_idx[st.session_state.step]
     en_q, es_a = jugar_verbs[current_idx]
 
@@ -110,79 +75,71 @@ if st.session_state.step < total_in_queue:
     st.markdown(f"### {mode_label}: {st.session_state.step + 1} / {total_in_queue}")
 
     if not st.session_state.lock:
+
         st.info(f"How do you say: '{en_q}'?")
+
         if f"asked_{current_idx}_{st.session_state.review_mode}" not in st.session_state:
             speak_bilingual(f"[EN] How do you say: {en_q}?")
             st.session_state[f"asked_{current_idx}_{st.session_state.review_mode}"] = True
 
-        # Start WebRTC
-        ctx = webrtc_streamer(
-            key=f"rec_{current_idx}",
-            mode="SENDONLY",
-            audio_processor_factory=AudioRecorder,
-            client_settings=ClientSettings(
-                media_stream_constraints={"audio": True, "video": False},
-            ),
-            async_processing=True
-        )
+        audio_file = st.audio_input("🎤 Tap to record")
 
-        if ctx.audio_processor:
-            if st.button("🎤 Tap to Record 2.5s"):
-                ctx.audio_processor.start_recording()
-                st.session_state.lock = True
+        if audio_file is not None:
 
-    # Check if audio finished
-    if not st.session_state.audio_queue.empty():
-        audio_buf = st.session_state.audio_queue.get()
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=audio_buf,
-            language="es"
-        ).text
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="es"
+            ).text
 
-        st.success(f"**You said:** {transcript}")
+            st.success(f"**You said:** {transcript}")
 
-        prompt = f"""User: "{transcript}".
+            prompt = f"""User: "{transcript}".
 Correct: "{es_a}".
 Reply only:
 "[ES] ¡Correcto! [ES] {es_a}"
 OR
 "[ES] ¡Incorrecto! [EN] It's more like this: [ES] {es_a}"
 """
-        res = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}]
-        ).choices[0].message.content
 
-        if "¡Incorrecto!" in res and not st.session_state.review_mode:
-            if current_idx not in st.session_state.failed_steps:
-                st.session_state.failed_steps.append(current_idx)
+            res = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}]
+            ).choices[0].message.content
 
-        clean_res = res.replace('[ES]','').replace('[EN]','')
-        st.markdown(f"**Lucas11:** {clean_res}")
-        dur = speak_bilingual(res)
+            if "¡Incorrecto!" in res and not st.session_state.review_mode:
+                if current_idx not in st.session_state.failed_steps:
+                    st.session_state.failed_steps.append(current_idx)
 
-        bar = st.progress(0, text="Lucas is speaking...")
-        for i in range(101):
-            time.sleep(dur / 100)
-            bar.progress(i)
+            clean_res = res.replace('[ES]', '').replace('[EN]', '')
+            st.markdown(f"**Lucas11:** {clean_res}")
 
-        st.session_state.step += 1
-        st.session_state.lock = False
-        st.rerun()
+            dur = speak_bilingual(res)
+
+            bar = st.progress(0, text="Lucas is speaking...")
+            for i in range(101):
+                time.sleep(dur / 100)
+                bar.progress(i)
+
+            st.session_state.step += 1
+            st.rerun()
 
 else:
     if not st.session_state.review_mode and st.session_state.failed_steps:
+
         st.session_state.review_mode = True
         st.session_state.step = 0
+
         st.warning("Let's review the ones you missed!")
         speak_bilingual("[EN] Now, we'll review the wrong ones.")
         time.sleep(2)
         st.rerun()
+
     else:
         st.balloons()
         st.success("Lesson Complete!")
         speak_bilingual("[ES] ¡Enhorabuena! Has terminado la lección. [EN] End of conversation.")
+
         if st.button("Restart Lesson"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
