@@ -1,78 +1,62 @@
+
 import streamlit as st
-import base64
+import numpy as np
+import sounddevice as sd
+import soundfile as sf
+import tempfile
+import time
+import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="3-Second Audio Recorder", layout="centered")
-st.title("Press-to-Record (3 Seconds) Audio Demo")
+st.title("Interactive Audio Recorder 🎙️")
 
-st.write("Click the button to record 3 seconds of audio:")
+# Recording parameters
+duration = st.slider("Recording duration (seconds)", 1, 10, 5)
+fs = 44100  # Sampling rate
 
-# Placeholder for audio playback
-audio_placeholder = st.empty()
+# State to track recording
+if "is_recording" not in st.session_state:
+    st.session_state.is_recording = False
 
-# HTML + JS for recording
-st.components.v1.html("""
-<button id="recordBtn">Record 3 Seconds</button>
-<p id="status"></p>
-<audio id="audioPlayback" controls></audio>
+# Function to record audio
+def record_audio():
+    st.session_state.is_recording = True
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        filename = tmp.name
+        # Record audio
+        recording = sd.rec(int(duration * fs), samplerate=fs, channels=1)
+        sd.wait()
+        sf.write(filename, recording, fs)
+    st.session_state.is_recording = False
+    return filename, recording
 
-<script>
-const button = document.getElementById("recordBtn");
-const status = document.getElementById("status");
-const audioPlayback = document.getElementById("audioPlayback");
-
-button.addEventListener("mousedown", async () => {
-    status.innerText = "Recording...";
-    
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mediaRecorder = new MediaRecorder(stream);
-    const audioChunks = [];
-
-    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-    
-    mediaRecorder.start();
-
-    // Stop automatically after 3 seconds
-    setTimeout(() => {
-        mediaRecorder.stop();
-        status.innerText = "Recording complete!";
-    }, 3000);
-
-    mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        audioPlayback.src = audioUrl;
-
-        // Convert audio to base64
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-            const base64data = reader.result.split(",")[1];
-            // Put it in a hidden input so Streamlit can read it
-            const hidden = document.createElement("input");
-            hidden.type = "hidden";
-            hidden.id = "audio_data";
-            hidden.value = base64data;
-            document.body.appendChild(hidden);
-        };
-    };
-});
-</script>
-""", height=250)
-
-# Button to send audio to Streamlit
-if st.button("Get Recorded Audio"):
-    audio_data = st.components.v1.html("""
-    <script>
-    const el = document.getElementById("audio_data");
-    if(el){
-        window.parent.postMessage({type:"audio_data", data: el.value}, "*");
+# Dynamic Record Button
+record_button_style = """
+    <style>
+    .stButton>button {
+        height: 80px;   /* Double height */
+        width: 80px;    /* Double width */
+        font-size: 20px;
+        border-radius: 50%;
+        background-color: %s;
+        color: white;
     }
-    </script>
-    """, height=0)
+    </style>
+"""
+button_color = "red" if st.session_state.is_recording else "#4CAF50"
+st.markdown(record_button_style % button_color, unsafe_allow_html=True)
 
-    # Use Streamlit JS listener to capture base64 (works immediately after press)
-    st.info("Press the button above first to record audio. Then click here to fetch it.")
-
-# Placeholder to show the recorded audio
-if "audio_bytes" in st.session_state:
-    audio_placeholder.audio(st.session_state["audio_bytes"], format="audio/wav")
+# Record button
+if st.button("Record"):
+    filename, recording = record_audio()
+    st.success("Recording complete! ✅")
+    
+    # Play back audio
+    st.audio(filename)
+    
+    # Plot waveform
+    fig, ax = plt.subplots(figsize=(10, 2))
+    ax.plot(np.linspace(0, duration, len(recording)), recording)
+    ax.set_xlabel("Time [s]")
+    ax.set_ylabel("Amplitude")
+    ax.set_title("Waveform")
+    st.pyplot(fig)
