@@ -1,9 +1,5 @@
-
-streamlit==1.32.0
+streamlit
 openai
 gTTS
 pydub
-streamlit-webrtc==0.47.1
-aiortc==1.5.0
-soundfile
 numpy
