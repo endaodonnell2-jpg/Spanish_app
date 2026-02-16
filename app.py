@@ -38,32 +38,30 @@ if 'failed_steps' not in st.session_state: st.session_state.failed_steps = []
 if 'review_mode' not in st.session_state: st.session_state.review_mode = False
 if 'lock' not in st.session_state: st.session_state.lock = False
 
+st.set_page_config(page_title="Lucas11 Colab Tutor", layout="centered")
 st.title("🎙️ Colab Tutor: Lucas11")
 
-# CUSTOM CSS: Big Button
+# CUSTOM CSS: Big Button & Hidden Audio
 st.markdown("""
     <style>
     audio { display: none !important; }
     button[data-testid="stAudioInputRecordButton"] {
-        transform: scale(1.8) !important;
-        margin: 30px !important;
+        transform: scale(2.0) !important;
+        margin: 40px auto !important;
+        display: block !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# JAVASCRIPT: The 3-Second Auto-Stop Timer
+# JAVASCRIPT: Auto-Stop after 3 seconds
 components.html("""
 <script>
-    const observer = new MutationObserver((mutations) => {
-        const stopButton = window.parent.document.querySelector('button[data-testid="stAudioInputStopButton"]');
-        if (stopButton) {
-            console.log("Recording started - starting 3s timer...");
+    const observer = new MutationObserver(() => {
+        const stopBtn = window.parent.document.querySelector('button[data-testid="stAudioInputStopButton"]');
+        if (stopBtn) {
             setTimeout(() => {
-                if (stopButton) {
-                    stopButton.click();
-                    console.log("3s limit reached - Auto-stopped.");
-                }
-            }, 3000);
+                stopBtn.click();
+            }, 3000); // 3000ms = 3 seconds
         }
     });
     observer.observe(window.parent.document.body, { childList: true, subtree: true });
@@ -100,18 +98,23 @@ if st.session_state.step < total_q:
     st.subheader(f"{mode}: {st.session_state.step + 1} / {total_q}")
 
     if not st.session_state.lock:
-        st.warning(f"FAST! How do you say: '{en_q}'?")
+        st.warning(f"FAST! 3 SECONDS! How do you say: '{en_q}'?")
         
         if f"q_{idx}_{st.session_state.review_mode}" not in st.session_state:
             speak_bilingual(f"[EN] How do you say: {en_q}?")
             st.session_state[f"q_{idx}_{st.session_state.review_mode}"] = True
 
-        # Countdown Progress Bar (Visual aid for the user)
-        audio_in = st.audio_input("Speak now! Auto-stop in 3s.", key=f"mic_{idx}_{st.session_state.review_mode}")
+        audio_in = st.audio_input("Speak now!", key=f"mic_{idx}_{st.session_state.review_mode}")
         
         if audio_in:
+            # Force trim to 3 seconds in Python as a backup
+            raw_audio = AudioSegment.from_file(audio_in)
+            trimmed_audio = raw_audio[:3000] 
+            buf = io.BytesIO()
+            trimmed_audio.export(buf, format="wav")
+            
+            st.session_state.temp_audio = buf
             st.session_state.lock = True
-            st.session_state.temp_audio = audio_in
             st.rerun()
 
     if st.session_state.lock and st.session_state.get('temp_audio'):
