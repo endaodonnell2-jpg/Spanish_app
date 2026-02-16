@@ -61,3 +61,20 @@ async def serve_index():
     dir_path = os.path.dirname(os.path.realpath(__file__))
     with open(os.path.join(dir_path, "index.html"), "r") as f:
         return f.read()
+
+@app.get("/", response_class=HTMLResponse)
+async def serve_index():
+    # Render's current directory is /opt/render/project/src/
+    # Your index is at /opt/render/project/src/frontend/index.html
+    
+    # This reaches out of the 'backend' folder and into the 'frontend' folder
+    dir_path = os.path.dirname(os.path.realpath(__file__)) # This is /backend
+    parent_path = os.path.dirname(dir_path) # This is project root
+    index_path = os.path.join(parent_path, "frontend", "index.html")
+
+    if os.path.exists(index_path):
+        with open(index_path, "r") as f:
+            return f.read()
+    else:
+        # If it still fails, this debug message will tell us EXACTLY where Render put your files
+        return f"File Not Found. I looked here: {index_path}. Current folder is: {os.getcwd()}"
