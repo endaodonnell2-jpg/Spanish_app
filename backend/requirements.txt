@@ -3,3 +3,4 @@ openai
 gTTS
 pydub
 audioop-lts
+uvicorn
