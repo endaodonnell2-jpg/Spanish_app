@@ -1,1 +1,47 @@
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from openai import OpenAI
+from gtts import gTTS
+import uuid, os
+
+app = FastAPI()
+client = OpenAI(api_key="Lucas13")  # <-- Replace with your key
+
+# Serve TTS mp3 files
+os.makedirs("static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.post("/process_audio")
+async def process_audio(file: UploadFile = File(...)):
+    # Save uploaded audio
+    temp_name = f"{uuid.uuid4().hex}.wav"
+    with open(temp_name, "wb") as f:
+        f.write(await file.read())
+
+    # Whisper transcription
+    with open(temp_name, "rb") as f:
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1", 
+            file=f
+        ).text
+
+    # GPT response (Lucas11)
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are Lucas11. Very short, witty answers. Max 10 words."},
+            {"role": "user", "content": transcript}
+        ]
+    )
+    ai_text = response.choices[0].message.content
+
+    # TTS generation
+    tts_file = f"static/{uuid.uuid4().hex}_tts.mp3"
+    gTTS(ai_text, lang="en").save(tts_file)
+
+    # Cleanup user audio
+    os.remove(temp_name)
+
+    return JSONResponse({"tts_url": f"/{tts_file}"})
 
