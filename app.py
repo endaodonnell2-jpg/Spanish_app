@@ -1,84 +1,90 @@
+import sys
+import time
+try:
+    import audioop
+except ImportError:
+    import audioop_lts as audioop
+    sys.modules["audioop"] = audioop
 
 import streamlit as st
-import numpy as np
-import sounddevice as sd
-import soundfile as sf
-import tempfile
-import matplotlib.pyplot as plt
+import io, os, uuid
+from openai import OpenAI
+from gtts import gTTS
+from pydub import AudioSegment
 
-st.title("🎙️ 3-Second Live Recorder with Waveform")
+# 1. SETUP
+client = OpenAI(api_key=st.secrets["Lucas13"])
 
-# Recording parameters
-DURATION = 3  # seconds
-FS = 44100
-CHANNELS = 1
+# CSS to hide audio bar
+st.markdown("<style>audio { display: none !important; }</style>", unsafe_allow_html=True)
 
-# Session state
-if "recording" not in st.session_state:
-    st.session_state.recording = False
-if "audio_data" not in st.session_state:
-    st.session_state.audio_data = []
+st.title("🎙️ Colab Tutor (Lucas11)")
 
-# Button style: red while recording
-button_style = """
-<style>
-.stButton>button {{
-    height: 80px;
-    width: 80px;
-    font-size: 20px;
-    border-radius: 50%;
-    background-color: {};
-    color: white;
-}}
-</style>
-"""
-button_color = "red" if st.session_state.recording else "#4CAF50"
-st.markdown(button_style.format(button_color), unsafe_allow_html=True)
+# Initialize state
+if 'lock' not in st.session_state:
+    st.session_state.lock = False
 
-# Live waveform figure
-fig, ax = plt.subplots(figsize=(10, 3))
-line, = ax.plot([], [], lw=1)
-ax.set_xlim(0, DURATION)
-ax.set_ylim(-0.5, 0.5)
-ax.set_xlabel("Time [s]")
-ax.set_ylabel("Amplitude")
-ax.set_title("Live Waveform")
-st.pyplot(fig, clear_figure=True)
+# 2. THE MICROPHONE
+if not st.session_state.lock:
+    # We use a unique key every time to prevent the "Error occurred" loop
+    audio_key = f"ms_{st.session_state.get('counter', 0)}"
+    audio_input = st.audio_input("Speak to Lucas11", key=audio_key)
+    
+    if audio_input is not None:
+        st.session_state.temp_audio = audio_input
+        st.session_state.lock = True
+        st.session_state.counter = st.session_state.get('counter', 0) + 1
+        st.rerun()
 
-def audio_callback(indata, frames, time, status):
-    if status:
-        print(status)
-    st.session_state.audio_data.append(indata.copy())
-    # Update waveform
-    audio_array = np.concatenate(st.session_state.audio_data, axis=0).flatten()
-    times = np.linspace(0, len(audio_array)/FS, num=len(audio_array))
-    line.set_data(times, audio_array)
-    ax.set_xlim(max(0, times[-1]-DURATION), times[-1])
-    fig.canvas.draw()
-    fig.canvas.flush_events()
+# 3. THE PROGRAM
+if st.session_state.lock and st.session_state.get('temp_audio'):
+    try:
+        # A. Transcribe
+        with st.spinner("Decoding..."):
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=st.session_state.temp_audio
+            ).text
+        
+        st.write(f"**You:** {transcript}")
 
-def record_3_seconds():
-    st.session_state.audio_data = []
-    st.session_state.recording = True
-    with sd.InputStream(callback=audio_callback, channels=CHANNELS, samplerate=FS):
-        sd.sleep(DURATION * 1000)
-    st.session_state.recording = False
-    st.success("Recording complete!")
+        # B. AI Brain
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are Lucas11. Very short, witty answers. Max 10 words."},
+                {"role": "user", "content": transcript}
+            ]
+        )
+        ai_text = response.choices[0].message.content
 
-    # Save audio
-    audio_array = np.concatenate(st.session_state.audio_data, axis=0)
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-        sf.write(tmp.name, audio_array, FS)
-        st.audio(tmp.name)
-    # Plot final waveform
-    fig2, ax2 = plt.subplots(figsize=(10, 3))
-    times = np.linspace(0, len(audio_array)/FS, num=len(audio_array))
-    ax2.plot(times, audio_array)
-    ax2.set_xlabel("Time [s]")
-    ax2.set_ylabel("Amplitude")
-    ax2.set_title("Recorded Waveform")
-    st.pyplot(fig2)
+        # C. Voice Generation
+        fname = f"{uuid.uuid4().hex}.mp3"
+        gTTS(ai_text, lang="en").save(fname)
+        audio_seg = AudioSegment.from_mp3(fname)
+        duration = len(audio_seg) / 1000.0
+        
+        buf = io.BytesIO()
+        audio_seg.export(buf, format="mp3")
+        if os.path.exists(fname): os.remove(fname)
 
-# Record button
-if st.button("Record (3 sec)"):
-    record_3_seconds()
+        # D. Output
+        st.markdown(f"### **Lucas11:** {ai_text}")
+        st.audio(buf, format="audio/mp3", autoplay=True)
+        
+        # Progress bar
+        bar = st.progress(0, text="Lucas11 is speaking...")
+        for i in range(101):
+            time.sleep(duration / 100)
+            bar.progress(i)
+        
+        # E. CLEAN RESET
+        st.session_state.lock = False
+        st.session_state.temp_audio = None
+        st.rerun()
+
+    except Exception as e:
+        # If an error happens, we reset so the user can try again
+        st.session_state.lock = False
+        st.session_state.temp_audio = None
+        st.rerun()
