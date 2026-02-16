@@ -1,81 +1,94 @@
-import sys
-import time
-try:
-    import audioop
-except ImportError:
-    import audioop_lts as audioop
-    sys.modules["audioop"] = audioop
-
 import streamlit as st
-import io, os, uuid
+import time, io, os, uuid
 from openai import OpenAI
 from gtts import gTTS
 from pydub import AudioSegment
 
-# 1. SETUP
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, ClientSettings
+import av
+import numpy as np
+
+# 1️⃣ Setup OpenAI
 client = OpenAI(api_key=st.secrets["Lucas13"])
 
-st.markdown("<style>audio { display: none !important; }</style>", unsafe_allow_html=True)
-
 st.title("🎙️ Colab Tutor (Lucas11)")
-st.caption("Recording limited to 3 seconds.")
+st.caption("Recording auto-limited to 3 seconds.")
 
 # Initialize state
 if 'lock' not in st.session_state:
     st.session_state.lock = False
-if 'temp_audio' not in st.session_state:
-    st.session_state.temp_audio = None
+if 'audio_frames' not in st.session_state:
+    st.session_state.audio_frames = []
 
-# 2. RECORD BUTTON (3 sec visual capture)
+# 2️⃣ Audio Processing Class
+class AudioProcessor:
+    def __init__(self):
+        self.frames = []
+
+    def recv(self, frame: av.AudioFrame):
+        # Convert to numpy array
+        pcm = frame.to_ndarray()
+        self.frames.append(pcm)
+        return frame
+
+# 3️⃣ Start WebRTC Streamer
 if not st.session_state.lock:
-
-    if st.button("🎤 Record (3 sec)"):
+    if st.button("🎤 Record 3 Seconds"):
         st.session_state.lock = True
+        st.session_state.audio_frames = []
 
-        # Visual recording countdown
-        bar = st.progress(0, text="Recording...")
+        # Start WebRTC streamer
+        ctx = webrtc_streamer(
+            key="lucas11",
+            mode=WebRtcMode.SENDONLY,
+            audio_receiver_size=1024,
+            client_settings=ClientSettings(
+                rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]},
+                media_stream_constraints={"audio": True, "video": False}
+            ),
+            audio_processor_factory=AudioProcessor,
+            async_processing=True
+        )
+
+        # 3-second visual countdown
+        progress = st.progress(0, text="Recording...")
         for i in range(101):
             time.sleep(3 / 100)
-            bar.progress(i)
+            progress.progress(i)
 
-        # Capture audio AFTER countdown
-        audio_input = st.audio_input("Speak now")
+        # Stop streaming
+        ctx.stop()
+        st.success("Recording finished!")
 
-        if audio_input is not None:
-            st.session_state.temp_audio = audio_input
-            st.rerun()
-        else:
-            st.session_state.lock = False
-            st.rerun()
+        # Combine frames into one audio segment
+        audio_data = np.concatenate(ctx.audio_processor.frames)
+        audio_bytes = (audio_data.astype(np.int16)).tobytes()
 
-# 3. PROCESS AUDIO
-if st.session_state.lock and st.session_state.temp_audio is not None:
+        # Save temp WAV
+        fname = f"{uuid.uuid4().hex}_record.wav"
+        seg = AudioSegment(
+            data=audio_bytes,
+            sample_width=2,
+            frame_rate=48000,
+            channels=1
+        )
+        # Trim exactly 3 sec (just in case)
+        seg = seg[:3000]
+        seg.export(fname, format="wav")
+
+        st.session_state.temp_audio = fname
+        st.rerun()
+
+# 4️⃣ Process Audio After Recording
+if st.session_state.lock and st.session_state.get('temp_audio'):
 
     try:
-        # A. Save original file
-        with st.spinner("Decoding..."):
-
-            original_fname = f"{uuid.uuid4().hex}_orig.wav"
-            with open(original_fname, "wb") as f:
-                f.write(st.session_state.temp_audio.getbuffer())
-
-            audio = AudioSegment.from_file(original_fname)
-
-            # Hard trim to 3 seconds
-            trimmed_audio = audio[:3000]
-
-            trimmed_fname = f"{uuid.uuid4().hex}_trimmed.wav"
-            trimmed_audio.export(trimmed_fname, format="wav")
-
-            # Send trimmed file to Whisper
-            with open(trimmed_fname, "rb") as audio_file:
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio_file
-                ).text
-
-            if os.path.exists(original_fname): os.remove(original_fname)
-            if os.path.exists(trimmed_fname): os.remove(trimmed_fname)
+        # A. Transcribe
+        with open(st.session_state.temp_audio, "rb") as f:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f
+            ).text
 
         st.write(f"**You:** {transcript}")
 
@@ -89,17 +102,16 @@ if st.session_state.lock and st.session_state.temp_audio is not None:
         )
         ai_text = response.choices[0].message.content
 
-        # C. Text-to-Speech
-        fname = f"{uuid.uuid4().hex}.mp3"
-        gTTS(ai_text, lang="en").save(fname)
-
-        audio_seg = AudioSegment.from_mp3(fname)
+        # C. gTTS TTS
+        tts_file = f"{uuid.uuid4().hex}_tts.mp3"
+        gTTS(ai_text, lang="en").save(tts_file)
+        audio_seg = AudioSegment.from_mp3(tts_file)
         duration = len(audio_seg) / 1000.0
 
         buf = io.BytesIO()
         audio_seg.export(buf, format="mp3")
-
-        if os.path.exists(fname): os.remove(fname)
+        if os.path.exists(tts_file): os.remove(tts_file)
+        if os.path.exists(st.session_state.temp_audio): os.remove(st.session_state.temp_audio)
 
         # D. Output
         st.markdown(f"### **Lucas11:** {ai_text}")
@@ -111,14 +123,15 @@ if st.session_state.lock and st.session_state.temp_audio is not None:
             time.sleep(duration / 100)
             speak_bar.progress(i)
 
-        # E. Reset cleanly
+        # E. Clean reset
         st.session_state.lock = False
         st.session_state.temp_audio = None
+        st.session_state.audio_frames = []
         st.rerun()
 
     except Exception as e:
+        st.error(f"Something went wrong: {e}")
         st.session_state.lock = False
         st.session_state.temp_audio = None
-        st.error("Something went wrong. Try again.")
+        st.session_state.audio_frames = []
         st.rerun()
-
