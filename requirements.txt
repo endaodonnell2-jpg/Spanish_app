@@ -1,7 +1,0 @@
-streamlit
-openai
-gTTS
-pydub
-streamlit-webrtc
-av
-numpy
