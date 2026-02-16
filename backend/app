@@ -6,7 +6,7 @@ from gtts import gTTS
 import uuid, os
 
 app = FastAPI()
-client = OpenAI(api_key="Lucas13")  # <-- Replace with your key
+client = OpenAI(api_key="Lucas14")  # <-- Replace with your key
 
 # Serve TTS mp3 files
 os.makedirs("static", exist_ok=True)
