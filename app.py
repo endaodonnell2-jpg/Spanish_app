@@ -6,7 +6,6 @@ except ImportError:
     sys.modules["audioop"] = audioop
 
 import streamlit as st
-import streamlit.components.v1 as components
 from openai import OpenAI
 from gtts import gTTS
 from pydub import AudioSegment
@@ -38,35 +37,19 @@ if 'failed_steps' not in st.session_state: st.session_state.failed_steps = []
 if 'review_mode' not in st.session_state: st.session_state.review_mode = False
 if 'lock' not in st.session_state: st.session_state.lock = False
 
-st.set_page_config(page_title="Lucas11 Colab Tutor", layout="centered")
 st.title("🎙️ Colab Tutor: Lucas11")
 
-# CUSTOM CSS: Big Button & Hidden Audio
+# CSS: Big Button & Hide Players
 st.markdown("""
     <style>
     audio { display: none !important; }
     button[data-testid="stAudioInputRecordButton"] {
         transform: scale(2.0) !important;
-        margin: 40px auto !important;
+        margin: 30px auto !important;
         display: block !important;
     }
     </style>
     """, unsafe_allow_html=True)
-
-# JAVASCRIPT: Auto-Stop after 3 seconds
-components.html("""
-<script>
-    const observer = new MutationObserver(() => {
-        const stopBtn = window.parent.document.querySelector('button[data-testid="stAudioInputStopButton"]');
-        if (stopBtn) {
-            setTimeout(() => {
-                stopBtn.click();
-            }, 3000); // 3000ms = 3 seconds
-        }
-    });
-    observer.observe(window.parent.document.body, { childList: true, subtree: true });
-</script>
-""", height=0)
 
 # 2. AUDIO ENGINE
 def speak_bilingual(text):
@@ -94,25 +77,25 @@ if st.session_state.step < total_q:
     idx = q_list[st.session_state.step]
     en_q, es_a = jugar_verbs[idx]
     
-    mode = "Review Round" if st.session_state.review_mode else "Main Lesson"
-    st.subheader(f"{mode}: {st.session_state.step + 1} / {total_q}")
+    st.subheader(f"{'Review Round' if st.session_state.review_mode else 'Main Lesson'}: {st.session_state.step + 1} / {total_q}")
 
     if not st.session_state.lock:
-        st.warning(f"FAST! 3 SECONDS! How do you say: '{en_q}'?")
+        st.warning(f"FAST! 3s LIMIT! How do you say: '{en_q}'?")
         
         if f"q_{idx}_{st.session_state.review_mode}" not in st.session_state:
             speak_bilingual(f"[EN] How do you say: {en_q}?")
             st.session_state[f"q_{idx}_{st.session_state.review_mode}"] = True
 
-        audio_in = st.audio_input("Speak now!", key=f"mic_{idx}_{st.session_state.review_mode}")
+        audio_in = st.audio_input("Press, speak, then press Stop immediately!", key=f"mic_{idx}_{st.session_state.review_mode}")
         
         if audio_in:
-            # Force trim to 3 seconds in Python as a backup
+            # THE SAFETY SNIP:
+            # We take the audio and cut it at exactly 3 seconds (3000ms)
             raw_audio = AudioSegment.from_file(audio_in)
             trimmed_audio = raw_audio[:3000] 
+            
             buf = io.BytesIO()
             trimmed_audio.export(buf, format="wav")
-            
             st.session_state.temp_audio = buf
             st.session_state.lock = True
             st.rerun()
@@ -138,6 +121,7 @@ if st.session_state.step < total_q:
         st.session_state.lock = False
         st.rerun()
 else:
+    # Review Logic
     if not st.session_state.review_mode and st.session_state.failed_steps:
         st.session_state.review_mode = True
         st.session_state.step = 0
