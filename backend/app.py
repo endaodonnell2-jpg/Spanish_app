@@ -1,32 +1,36 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+import streamlit as st
 from openai import OpenAI
 from gtts import gTTS
-import uuid, os
+import uuid
+import os
 
-app = FastAPI()
-client = OpenAI(api_key="Lucas14")  # <-- Replace with your key
+# 1. Setup
+st.title("Colab Tutor")
+client = OpenAI(api_key="Lucas14") # Make sure your real key is here!
 
-# Serve TTS mp3 files
-os.makedirs("static", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Ensure static folder exists
+if not os.path.exists("static"):
+    os.makedirs("static")
 
-@app.post("/process_audio")
-async def process_audio(file: UploadFile = File(...)):
-    # Save uploaded audio
+# 2. Interface
+audio_input = st.audio_input("Say something to Lucas11")
+
+if audio_input:
+    # Save the audio temporarily
     temp_name = f"{uuid.uuid4().hex}.wav"
     with open(temp_name, "wb") as f:
-        f.write(await file.read())
+        f.write(audio_input.getvalue())
 
-    # Whisper transcription
+    # 3. Whisper Transcription
     with open(temp_name, "rb") as f:
         transcript = client.audio.transcriptions.create(
             model="whisper-1", 
             file=f
         ).text
+    
+    st.write(f"**You said:** {transcript}")
 
-    # GPT response (Lucas11)
+    # 4. GPT Response
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
@@ -35,13 +39,16 @@ async def process_audio(file: UploadFile = File(...)):
         ]
     )
     ai_text = response.choices[0].message.content
+    st.write(f"**Lucas11:** {ai_text}")
 
-    # TTS generation
-    tts_file = f"static/{uuid.uuid4().hex}_tts.mp3"
-    gTTS(ai_text, lang="en").save(tts_file)
+    # 5. TTS Generation
+    tts_filename = f"static/{uuid.uuid4().hex}_tts.mp3"
+    tts = gTTS(ai_text, lang="en")
+    tts.save(tts_filename)
 
-    # Cleanup user audio
+    # Play the response
+    st.audio(tts_filename, format="audio/mp3", autoplay=True)
+
+    # Cleanup
     os.remove(temp_name)
-
-    return JSONResponse({"tts_url": f"/{tts_file}"})
 
