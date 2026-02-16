@@ -4,3 +4,5 @@ gTTS
 pydub
 audioop-lts
 uvicorn
+fastapi
+python-multipart
