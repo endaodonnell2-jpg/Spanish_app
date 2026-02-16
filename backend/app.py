@@ -15,7 +15,6 @@ app.add_middleware(
 )
 
 client = OpenAI(api_key="Lucas14")
-
 # We are NOT using app.mount anymore. We'll serve files directly.
 # This bypasses the "Directory does not exist" crash entirely.
 
