@@ -14,7 +14,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = OpenAI(api_key="Lucas14")
+# This tells Python: "Go find the value of the variable named Lucas14 in Render's settings"
+client = OpenAI(api_key=os.getenv("Lucas14"))
 # We are NOT using app.mount anymore. We'll serve files directly.
 # This bypasses the "Directory does not exist" crash entirely.
 
