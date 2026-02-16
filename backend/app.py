@@ -1,36 +1,43 @@
-import streamlit as st
+from fastapi import FastAPI, UploadFile, File
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from gtts import gTTS
 import uuid
 import os
 
-# 1. Setup
-st.title("Colab Tutor")
-client = OpenAI(api_key="Lucas14") # Make sure your real key is here!
+app = FastAPI()
 
-# Ensure static folder exists
-if not os.path.exists("static"):
-    os.makedirs("static")
+# Allow frontend to talk to backend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# 2. Interface
-audio_input = st.audio_input("Say something to Lucas11")
+client = OpenAI(api_key="YOUR_OPENAI_KEY_HERE")
 
-if audio_input:
-    # Save the audio temporarily
+# Setup static folder for the MP3s
+os.makedirs("static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.post("/process_audio")
+async def process_audio(file: UploadFile = File(...)):
+    # 1. Save the incoming walkie-talkie audio
     temp_name = f"{uuid.uuid4().hex}.wav"
     with open(temp_name, "wb") as f:
-        f.write(audio_input.getvalue())
+        f.write(await file.read())
 
-    # 3. Whisper Transcription
+    # 2. Transcribe with Whisper
     with open(temp_name, "rb") as f:
         transcript = client.audio.transcriptions.create(
             model="whisper-1", 
             file=f
         ).text
-    
-    st.write(f"**You said:** {transcript}")
 
-    # 4. GPT Response
+    # 3. Get Lucas11's witty response
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
@@ -39,16 +46,20 @@ if audio_input:
         ]
     )
     ai_text = response.choices[0].message.content
-    st.write(f"**Lucas11:** {ai_text}")
 
-    # 5. TTS Generation
+    # 4. Generate the Spanish/English voice response
     tts_filename = f"static/{uuid.uuid4().hex}_tts.mp3"
-    tts = gTTS(ai_text, lang="en")
+    tts = gTTS(ai_text, lang="en") # Change lang="es" if you want Lucas to speak Spanish
     tts.save(tts_filename)
 
-    # Play the response
-    st.audio(tts_filename, format="audio/mp3", autoplay=True)
-
-    # Cleanup
+    # 5. Cleanup temp file
     os.remove(temp_name)
 
+    # 6. Send back the URL for the frontend to play
+    return JSONResponse({"tts_url": f"/{tts_filename}"})
+
+# Optional: Serve your index.html if you want it hosted on the same URL
+@app.get("/", response_class=HTMLResponse)
+async def serve_index():
+    with open("index.html", "r") as f:
+        return f.read()
