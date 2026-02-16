@@ -1,6 +1,5 @@
-fastapi
-uvicorn
+streamlit
 openai
-gtts
+gTTS
 pydub
-
+audioop-lts
