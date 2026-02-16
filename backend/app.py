@@ -57,24 +57,26 @@ async def get_audio(file_id: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
-    # Looks for index.html in the same folder as app.py
-    dir_path = os.path.dirname(os.path.realpath(__file__))
-    with open(os.path.join(dir_path, "index.html"), "r") as f:
-        return f.read()
-
-@app.get("/", response_class=HTMLResponse)
-async def serve_index():
-    # Render's current directory is /opt/render/project/src/
-    # Your index is at /opt/render/project/src/frontend/index.html
+    # 1. Get the absolute path of the folder where app.py lives (/backend)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # This reaches out of the 'backend' folder and into the 'frontend' folder
-    dir_path = os.path.dirname(os.path.realpath(__file__)) # This is /backend
-    parent_path = os.path.dirname(dir_path) # This is project root
-    index_path = os.path.join(parent_path, "frontend", "index.html")
+    # 2. Get the project root (one level up from /backend)
+    root_dir = os.path.dirname(current_dir)
+    
+    # 3. Create the direct path to the file
+    target_path = os.path.join(root_dir, "frontend", "index.html")
 
-    if os.path.exists(index_path):
-        with open(index_path, "r") as f:
+    # 4. Try to open it
+    if os.path.exists(target_path):
+        with open(target_path, "r") as f:
             return f.read()
-    else:
-        # If it still fails, this debug message will tell us EXACTLY where Render put your files
-        return f"File Not Found. I looked here: {index_path}. Current folder is: {os.getcwd()}"
+    
+    # 5. BACKUP: If the path above fails, search the whole project for index.html
+    # This is the 'Nuclear Option' to ensure you never see a 500 error again
+    for root, dirs, files in os.walk(root_dir):
+        if "index.html" in files:
+            found_path = os.path.join(root, "index.html")
+            with open(found_path, "r") as f:
+                return f.read()
+
+    return f"Error: index.html not found. Checked: {target_path}"
