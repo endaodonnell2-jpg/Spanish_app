@@ -1,1 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Lucas11 Walkie-Talkie</title>
+</head>
+<body>
+<h2>🎙️ Lucas11 Walkie-Talkie</h2>
+<button id="talkBtn">Hold to Talk</button>
+<audio id="ttsAudio" controls></audio>
+
+<script>
+let mediaRecorder;
+let audioChunks = [];
+
+const btn = document.getElementById("talkBtn");
+const ttsAudio = document.getElementById("ttsAudio");
+
+// Start recording on mouse down
+btn.addEventListener("mousedown", async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.start();
+});
+
+// Stop recording on mouse up
+btn.addEventListener("mouseup", async () => {
+    mediaRecorder.stop();
+    mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, {type:'audio/wav'});
+        const formData = new FormData();
+        formData.append("file", blob, "talk.wav");
+
+        // Send to backend
+        const response = await fetch("http://localhost:8000/process_audio", {method:"POST", body:formData});
+        const data = await response.json();
+
+        // Play TTS immediately
+        ttsAudio.src = data.tts_url;
+        ttsAudio.play();
+    }
+});
+</script>
+</body>
+</html>
 
