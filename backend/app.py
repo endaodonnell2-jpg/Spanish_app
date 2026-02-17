@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from gtts import gTTS
-import uuid, os, tempfile
+import uuid, os, tempfile, shutil
 
 app = FastAPI()
 
@@ -47,7 +47,7 @@ async def process_audio(file: UploadFile = File(...)):
     tts = gTTS(ai_text, lang="en")
     tts.save(output_path)
 
-    # Cleanup input
+    # Cleanup uploaded file immediately
     try:
         os.remove(input_path)
     except:
@@ -60,7 +60,13 @@ async def process_audio(file: UploadFile = File(...)):
 async def get_audio(file_id: str):
     file_path = os.path.join(tempfile.gettempdir(), f"{file_id}.mp3")
     if os.path.exists(file_path):
-        return FileResponse(file_path, media_type="audio/mpeg")
+        # Serve and then delete after a short delay
+        response = FileResponse(file_path, media_type="audio/mpeg")
+        try:
+            os.remove(file_path)
+        except:
+            pass
+        return response
     return JSONResponse({"error": "Audio not found"}, status_code=404)
 
 
