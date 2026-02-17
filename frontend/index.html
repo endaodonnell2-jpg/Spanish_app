@@ -1,62 +1,185 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Lucas11 Walkie-Talkie</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lucas11 Walkie-Talkie</title>
+<style>
+  body {
+    margin: 0;
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: #111;
+    color: #fff;
+  }
+
+  /* Waveform bars container */
+  #waveforms {
+    display: flex;
+    justify-content: space-around;
+    padding: 10px;
+    gap: 10px;
+    height: 80px;
+  }
+
+  .bar {
+    flex: 1;
+    background: #333;
+    margin: 0 2px;
+    border-radius: 3px;
+    height: 20px;
+    transition: height 0.1s ease;
+  }
+
+  /* Text area */
+  #textArea {
+    flex: 1;
+    padding: 10px;
+    overflow-y: auto;
+    background: #1a1a1a;
+    border-top: 1px solid #333;
+    border-bottom: 1px solid #333;
+  }
+
+  .userText { color: #ff4d4d; margin: 5px 0; }
+  .aiText { color: #4dff88; margin: 5px 0; }
+
+  /* Hold to talk button */
+  #talkBtn {
+    width: 90%;
+    height: 60px;
+    margin: 20px auto;
+    border: none;
+    border-radius: 12px;
+    font-size: 1.2rem;
+    background: #4dff88;
+    color: #000;
+    transition: background 0.2s;
+  }
+
+  #talkBtn.active {
+    background: #ff4d4d;
+    color: #fff;
+  }
+</style>
 </head>
 <body>
-<h2>🎙️ Lucas11 Walkie-Talkie</h2>
+
+<!-- Waveforms -->
+<div id="waveforms">
+  <div id="userBars"></div>
+  <div id="aiBars"></div>
+</div>
+
+<!-- Text area -->
+<div id="textArea"></div>
+
+<!-- Hold-to-talk button -->
 <button id="talkBtn">Hold to Talk</button>
-<audio id="ttsAudio" controls></audio>
 
 <script>
-let mediaRecorder;
-let audioChunks = [];
-const btn = document.getElementById("talkBtn");
-const ttsAudio = document.getElementById("ttsAudio");
+const talkBtn = document.getElementById('talkBtn');
+const textArea = document.getElementById('textArea');
+const userBarsContainer = document.getElementById('userBars');
+const aiBarsContainer = document.getElementById('aiBars');
 
+let mediaRecorder, audioChunks = [];
+let isRecording = false;
+
+// Create waveform bars
+const createBars = (container, color) => {
+  const bars = [];
+  for(let i=0; i<20; i++) {
+    const bar = document.createElement('div');
+    bar.classList.add('bar');
+    bar.style.background = color;
+    container.appendChild(bar);
+    bars.push(bar);
+  }
+  return bars;
+};
+
+const userBars = createBars(userBarsContainer, '#ff4d4d');
+const aiBars = createBars(aiBarsContainer, '#4dff88');
+
+// Animate bars
+const animateBars = (bars, volume) => {
+  bars.forEach(bar => {
+    const height = 10 + Math.random() * volume*50;
+    bar.style.height = `${height}px`;
+  });
+};
+
+// Start recording
 async function startRecording() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
-        audioChunks = [];
-        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-        mediaRecorder.start();
-    } catch(err) {
-        console.error("Mic access error:", err);
-        alert("Could not access microphone.");
-    }
+  isRecording = true;
+  talkBtn.classList.add('active');
+  textArea.innerHTML += `<div class="userText">You: ...</div>`;
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  mediaRecorder = new MediaRecorder(stream);
+  audioChunks = [];
+  mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+  mediaRecorder.start();
+
+  const audioContext = new AudioContext();
+  const source = audioContext.createMediaStreamSource(stream);
+  const analyser = audioContext.createAnalyser();
+  source.connect(analyser);
+  analyser.fftSize = 256;
+  const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+  // Animate while recording
+  function update() {
+    if(!isRecording) return;
+    analyser.getByteFrequencyData(dataArray);
+    const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length/255;
+    animateBars(userBars, avg);
+    requestAnimationFrame(update);
+  }
+  update();
 }
 
+// Stop recording
 async function stopRecording() {
-    if (!mediaRecorder) return;
-    mediaRecorder.stop();
-    mediaRecorder.onstop = async () => {
-        const blob = new Blob(audioChunks, { type: 'audio/webm' });
-        const formData = new FormData();
-        formData.append("file", blob, "talk.webm");
+  if(!mediaRecorder) return;
+  isRecording = false;
+  talkBtn.classList.remove('active');
+  mediaRecorder.stop();
+  mediaRecorder.onstop = async () => {
+    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+    const formData = new FormData();
+    formData.append('file', blob, 'talk.webm');
 
-        try {
-            const response = await fetch("/process_audio", { method: "POST", body: formData });
-            if (!response.ok) throw new Error("Network response not ok");
-            const data = await response.json();
-            ttsAudio.src = data.tts_url;
-            ttsAudio.play();
-        } catch (err) {
-            console.error("Failed to process audio:", err);
-            alert("Failed to process audio. Check console.");
-        }
+    try {
+      const response = await fetch('/process_audio', { method: 'POST', body: formData });
+      const data = await response.json();
+      const aiAudio = new Audio(data.tts_url);
+      
+      // Animate AI bars while audio plays
+      aiAudio.onplay = () => {
+        textArea.innerHTML += `<div class="aiText">AI: ...</div>`;
+        const aiInterval = setInterval(() => {
+          animateBars(aiBars, Math.random());
+        }, 100);
+        aiAudio.onended = () => {
+          clearInterval(aiInterval);
+        };
+      };
+      aiAudio.play();
+    } catch(e) {
+      console.error('Error processing audio', e);
+      alert('Failed to process audio');
     }
+  }
 }
 
-// Desktop events
-btn.addEventListener("mousedown", startRecording);
-btn.addEventListener("mouseup", stopRecording);
+// Button events
+talkBtn.addEventListener('mousedown', startRecording);
+talkBtn.addEventListener('mouseup', stopRecording);
+talkBtn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
+talkBtn.addEventListener('touchend', e => { e.preventDefault(); stopRecording(); });
 
-// Mobile events
-btn.addEventListener("touchstart", e => { e.preventDefault(); startRecording(); });
-btn.addEventListener("touchend", e => { e.preventDefault(); stopRecording(); });
 </script>
 </body>
 </html>
-
