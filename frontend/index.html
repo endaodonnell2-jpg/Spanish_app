@@ -32,11 +32,15 @@ btn.addEventListener("mouseup", async () => {
         const formData = new FormData();
         formData.append("file", blob, "talk.wav");
 
-        // Send to backend
-        const response = await fetch("http://localhost:8000/process_audio", {method:"POST", body:formData});
+        // ✅ FIXED: Use relative path
+        const response = await fetch("/process_audio", {
+            method: "POST",
+            body: formData
+        });
+
         const data = await response.json();
 
-        // Play TTS immediately
+        // Play returned audio
         ttsAudio.src = data.tts_url;
         ttsAudio.play();
     }
@@ -44,4 +48,5 @@ btn.addEventListener("mouseup", async () => {
 </script>
 </body>
 </html>
+
 
