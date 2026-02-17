@@ -45,20 +45,13 @@ async function stopRecording() {
     }
 }
 
-// Desktop events
+// Touch events for mobile first
+btn.addEventListener("touchstart", e => { e.preventDefault(); startRecording(); });
+btn.addEventListener("touchend", e => { e.preventDefault(); stopRecording(); });
+
+// Desktop fallback
 btn.addEventListener("mousedown", startRecording);
 btn.addEventListener("mouseup", stopRecording);
-
-// Mobile touch events
-btn.addEventListener("touchstart", e => {
-    e.preventDefault(); // Prevent scrolling
-    startRecording();
-});
-btn.addEventListener("touchend", e => {
-    e.preventDefault();
-    stopRecording();
-});
 </script>
 </body>
 </html>
-
