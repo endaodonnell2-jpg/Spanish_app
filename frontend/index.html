@@ -241,11 +241,11 @@ function drawFlatLine() {
 
 /* USER HOLD */
 micBtn.addEventListener("pointerdown", async () => {
-    pressStartTime = performance.now();
     await initAudio();
     state = "user";
     micBtn.classList.add("active");
     micBtn.classList.add("pressed");
+    pressStartTime = performance.now();
     audioChunks = [];
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -258,7 +258,7 @@ micBtn.addEventListener("pointerdown", async () => {
     mediaRecorder.start();
 });
 
-window.addEventListener("pointerup", () => {
+function stopRecording() {
     const pressDuration = performance.now() - pressStartTime;
 
     if (mediaRecorder && mediaRecorder.state === "recording") {
@@ -281,7 +281,11 @@ window.addEventListener("pointerup", () => {
     micBtn.classList.remove("active");
     state = "thinking";
     micBtn.classList.add("thinking"); // show gear while AI is thinking
-});
+}
+
+window.addEventListener("pointerup", stopRecording);
+window.addEventListener("pointercancel", stopRecording);
+window.addEventListener("pointerleave", stopRecording);
 
 /* SEND TO BACKEND */
 async function sendAudio() {
@@ -331,6 +335,7 @@ drawFlatLine();
 
 </body>
 </html>
+
 
 
 
