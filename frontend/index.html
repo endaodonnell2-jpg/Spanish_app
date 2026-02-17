@@ -2,167 +2,187 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Walkie-Talkie Chat</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Lucas11</title>
+
 <style>
-  body {
+:root {
+    --neutral: #2ecc71;
+    --active: #e74c3c;
+    --bg: #f3efe7; /* beige background */
+}
+
+* { box-sizing: border-box; }
+
+body {
     margin: 0;
     padding: 0;
-    background-color: #f3f0eb; /* light beige */
-    font-family: sans-serif;
+    background: var(--bg);
+    font-family: -apple-system, system-ui, sans-serif;
+    height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
     align-items: center;
-    height: 100vh;
     justify-content: center;
     overflow: hidden;
-  }
+}
 
-  #sound-bar {
-    width: 80%;
-    height: 20px;
-    background-color: grey;
-    border-radius: 10px;
-    margin-bottom: 20px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  #sound-level {
-    height: 100%;
-    width: 0%;
-    background-color: grey;
-    transition: width 0.05s linear;
-  }
-
-  #transcript {
-    width: 90%;
-    height: 100px;
-    background-color: #fff;
-    border-radius: 10px;
-    padding: 10px;
-    overflow-y: auto;
-    margin-bottom: 20px;
-    box-sizing: border-box;
-    font-size: 16px;
-  }
-
-  #hold-button {
-    width: 70%;
-    max-width: 300px;
-    height: 60px;
-    background-color: green;
-    border: none;
-    border-radius: 10px;
-    color: white;
-    font-size: 24px;
-    font-weight: bold;
+/* Sound bar */
+#visualizer-container {
+    width: 100%;
     display: flex;
-    align-items: center;
     justify-content: center;
-    touch-action: manipulation;
-    user-select: none;
-  }
+    margin-bottom: 40px;
+}
+
+canvas {
+    width: 85%;
+    height: 70px;
+}
+
+/* Hold button centered */
+#holdBtn {
+    width: 80%;
+    max-width: 350px;
+    height: 90px;
+    border-radius: 20px;
+    border: none;
+    background: var(--neutral);
+    color: white;
+    font-size: 1.4rem;
+    font-weight: bold;
+    touch-action: none;
+}
+
+#holdBtn.active {
+    background: var(--active);
+}
 </style>
 </head>
+
 <body>
 
-<div id="sound-bar"><div id="sound-level"></div></div>
-<div id="transcript"></div>
-<button id="hold-button">HOLD</button>
+<div id="visualizer-container">
+    <canvas id="visualizer"></canvas>
+</div>
+
+<button id="holdBtn">HOLD TO SPEAK</button>
 
 <script>
-let isHolding = false;
-let userStream, audioContext, analyser, dataArray;
-let aiPlaying = false;
+const holdBtn = document.getElementById('holdBtn');
+const canvas = document.getElementById('visualizer');
+const canvasCtx = canvas.getContext('2d');
 
-// Initialize microphone
-async function initMic() {
-  userStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  const source = audioContext.createMediaStreamSource(userStream);
-  analyser = audioContext.createAnalyser();
-  analyser.fftSize = 256;
-  source.connect(analyser);
-  dataArray = new Uint8Array(analyser.frequencyBinCount);
+let audioCtx;
+let analyser;
+let dataArray;
+let mediaRecorder;
+let audioChunks = [];
+
+/* ---------- AUDIO INIT ---------- */
+async function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === "suspended") {
+        await audioCtx.resume();
+    }
 }
 
-// Update sound bar based on input
-function updateSoundBar() {
-  let level = 0;
-  if (isHolding && analyser) {
-    analyser.getByteFrequencyData(dataArray);
-    level = Math.max(...dataArray) / 255;
-    document.getElementById('sound-level').style.width = `${level * 100}%`;
-    document.getElementById('sound-level').style.backgroundColor = 'red';
-  } else if (aiPlaying) {
-    // AI speaking: animate green
-    level = Math.random() * 0.5 + 0.3; // simulate AI peaks
-    document.getElementById('sound-level').style.width = `${level * 100}%`;
-    document.getElementById('sound-level').style.backgroundColor = 'green';
-  } else {
-    document.getElementById('sound-level').style.width = `0%`;
-    document.getElementById('sound-level').style.backgroundColor = 'grey';
-  }
-  requestAnimationFrame(updateSoundBar);
+/* ---------- VISUALIZER ---------- */
+function setupVisualizer(sourceNode, color) {
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+
+    sourceNode.connect(analyser);
+
+    const bufferLength = analyser.frequencyBinCount;
+    dataArray = new Uint8Array(bufferLength);
+
+    function draw() {
+        requestAnimationFrame(draw);
+        analyser.getByteFrequencyData(dataArray);
+
+        canvas.width = canvas.offsetWidth;
+        canvas.height = canvas.offsetHeight;
+
+        canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+        canvasCtx.fillStyle = color;
+
+        let x = 0;
+        const barWidth = 3;
+
+        for (let i = 0; i < bufferLength; i++) {
+            const barHeight = dataArray[i] / 2;
+            canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+            x += barWidth + 2;
+        }
+    }
+
+    draw();
 }
 
-// Handle hold button press
-const holdBtn = document.getElementById('hold-button');
-holdBtn.addEventListener('mousedown', startHold);
-holdBtn.addEventListener('touchstart', startHold);
-holdBtn.addEventListener('mouseup', endHold);
-holdBtn.addEventListener('touchend', endHold);
+/* ---------- HOLD TO SPEAK ---------- */
+holdBtn.addEventListener("pointerdown", async (e) => {
+    e.preventDefault();
+    await initAudio();
 
-function startHold() {
-  isHolding = true;
-  holdBtn.style.backgroundColor = 'red';
-  // start recording audio to send to backend
-  startRecording();
-}
+    holdBtn.classList.add("active");
+    audioChunks = [];
 
-function endHold() {
-  isHolding = false;
-  holdBtn.style.backgroundColor = 'green';
-  stopRecordingAndSend();
-}
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const micSource = audioCtx.createMediaStreamSource(stream);
 
-// Placeholder functions: implement with your backend
-let mediaRecorder, audioChunks;
-async function startRecording() {
-  audioChunks = [];
-  mediaRecorder = new MediaRecorder(userStream);
-  mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-  mediaRecorder.start();
-}
+    setupVisualizer(micSource, "#e74c3c"); // red user bars
 
-async function stopRecordingAndSend() {
-  mediaRecorder.stop();
-  mediaRecorder.onstop = async () => {
-    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+    mediaRecorder.onstop = sendAudio;
+    mediaRecorder.start();
+});
+
+window.addEventListener("pointerup", () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+        holdBtn.classList.remove("active");
+    }
+});
+
+/* ---------- SEND AUDIO ---------- */
+async function sendAudio() {
+    const blob = new Blob(audioChunks, { type: "audio/webm" });
+    if (blob.size < 1000) return;
+
     const formData = new FormData();
-    formData.append('file', audioBlob);
-    
-    // send to backend
-    const res = await fetch('/process_audio', { method: 'POST', body: formData });
-    const data = await res.json();
-    
-    // show transcript
-    const transcriptDiv = document.getElementById('transcript');
-    transcriptDiv.innerHTML = `<p><strong>You:</strong> ${data.user_text}</p>
-                               <p><strong>AI:</strong> ${data.ai_text}</p>`;
-    
-    // play AI audio
-    aiPlaying = true;
-    const aiAudio = new Audio(data.ai_audio_url);
-    aiAudio.onended = () => aiPlaying = false;
-    aiAudio.play();
-  };
+    formData.append("file", blob, "user.webm");
+
+    const response = await fetch("/process_audio", {
+        method: "POST",
+        body: formData
+    });
+
+    const data = await response.json();
+
+    if (data.tts_url) {
+        playAI(data.tts_url);
+    }
 }
 
-initMic();
-updateSoundBar();
+/* ---------- AI PLAYBACK ---------- */
+function playAI(url) {
+    const audio = new Audio(url);
+    audio.crossOrigin = "anonymous";
+
+    const aiSource = audioCtx.createMediaElementSource(audio);
+    setupVisualizer(aiSource, "#2ecc71"); // green AI bars
+
+    aiSource.connect(audioCtx.destination);
+
+    audio.play();
+}
 </script>
 
 </body>
 </html>
+
