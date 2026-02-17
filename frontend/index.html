@@ -21,7 +21,7 @@
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
-    -webkit-tap-highlight-color: transparent; /* remove blue highlight on touch */
+    -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -67,10 +67,10 @@ body {
     transition:
         transform 0.18s cubic-bezier(.34,1.56,.64,1),
         box-shadow 0.18s ease,
-        background 0.2s ease,
-        box-shadow 0.5s ease;
+        background 0.2s ease;
     position: relative;
-    /* idle breathing glow */
+
+    /* faint breathing glow */
     animation: idleGlow 3s ease-in-out infinite alternate;
 }
 
@@ -149,11 +149,9 @@ body {
 <canvas id="visualizer"></canvas>
 
 <div id="micBtn">
-    <!-- Inline SVG Mic -->
     <svg viewBox="0 0 24 24">
         <path d="M12 14a3 3 0 003-3V5a3 3 0 10-6 0v6a3 3 0 003 3zm5-3a1 1 0 10-2 0 3 3 0 01-6 0 1 1 0 10-2 0 5 5 0 004 4.9V19H9a1 1 0 000 2h6a1 1 0 000-2h-2v-3.1A5 5 0 0017 11z"/>
     </svg>
-    <!-- Subtle thinking gear -->
     <svg class="gear" viewBox="0 0 24 24">
         <path d="M19.43 12.98l1.77-1.03-1.77-1.03a7.987 7.987 0 00-.37-1.82l2.11-1.18-1.77-3.06-2.11 1.18a7.978 7.978 0 00-1.54-1.06L14.9 2h-5.8l-.42 2.06c-.57.23-1.1.57-1.54 1.06L5.03 4.95 3.26 8l2.11 1.18c-.12.59-.18 1.2-.12 1.82L3.48 12.98l1.77 1.03c.06.62.12 1.23.24 1.82l-2.11 1.18 1.77 3.06 2.11-1.18c.44.49.97.83 1.54 1.06L9.1 22h5.8l.42-2.06c.57-.23 1.1-.57 1.54-1.06l2.11 1.18 1.77-3.06-2.11-1.18c.12-.59.18-1.2.12-1.82zM12 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"/>
     </svg>
@@ -200,7 +198,7 @@ function startVisualizer(sourceNode) {
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (state === "idle") {
+        if (state === "idle" || state === "thinking") {
             drawFlatLine();
             return;
         }
@@ -241,7 +239,6 @@ function drawFlatLine() {
 }
 
 /* USER HOLD */
-
 micBtn.addEventListener("pointerdown", async () => {
     await initAudio();
     state = "user";
@@ -265,18 +262,15 @@ window.addEventListener("pointerup", () => {
         micBtn.classList.remove("pressed");
         micBtn.classList.add("pop");
 
-        setTimeout(() => {
-            micBtn.classList.remove("pop");
-        }, 250);
+        setTimeout(() => micBtn.classList.remove("pop"), 250);
 
         micBtn.classList.remove("active");
-        state = "thinking"; // indicate AI is thinking now
-        micBtn.classList.add("thinking");
+        state = "thinking";
+        micBtn.classList.add("thinking"); // show gear while AI is thinking
     }
 });
 
 /* SEND TO BACKEND */
-
 async function sendAudio() {
     const blob = new Blob(audioChunks, { type: "audio/webm" });
     if (blob.size < 1000) {
@@ -301,9 +295,9 @@ async function sendAudio() {
 }
 
 /* AI PLAYBACK */
-
 function playAI(url) {
-    state = "ai";
+    state = "ai"; // AI speaking
+    micBtn.classList.remove("thinking"); // hide gear immediately
 
     const audio = new Audio(url);
     audio.crossOrigin = "anonymous";
@@ -314,7 +308,6 @@ function playAI(url) {
 
     audio.onended = () => {
         state = "idle";
-        micBtn.classList.remove("thinking"); // remove gear
     };
 
     audio.play();
@@ -325,4 +318,5 @@ drawFlatLine();
 
 </body>
 </html>
+
 
