@@ -1,193 +1,147 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Walkie-Talkie Mobile</title>
+<title>Walkie-Talkie UI</title>
 <style>
   body {
     margin: 0;
     font-family: sans-serif;
+    background-color: #f3f0eb; /* light beige background */
     display: flex;
     flex-direction: column;
+    justify-content: space-between;
     height: 100vh;
-    background: #f5f1e6; /* light beige */
-    color: #000;
     overflow: hidden;
   }
 
-  /* Single horizontal sound bar */
-  #soundBar {
-    height: 14px;
-    margin: 10px 10px 0 10px;
-    border-radius: 7px;
-    background: #ccc;
-    transition: width 0.05s, background 0.05s;
+  /* Sound bar */
+  #sound-bar {
+    height: 20px;
+    width: 100%;
+    background-color: grey;
+    border-radius: 10px;
+    margin: 10px 0;
+    transition: background-color 0.1s;
   }
 
-  /* Text display (last sentences only) */
-  #textArea {
+  /* Container for last two sentences */
+  #text-box {
     flex: 1;
+    padding: 10px;
+    overflow-y: hidden;
     display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    padding: 5px 10px;
-    font-size: 1rem;
-    overflow: hidden;
+    flex-direction: column-reverse;
   }
 
-  .userText { color: #d9534f; margin: 2px 0; }
-  .aiText { color: #5cb85c; margin: 2px 0; }
+  .sentence {
+    margin: 5px 0;
+    word-break: break-word;
+  }
 
-  /* Hold to talk button */
-  #talkBtn {
-    position: absolute;
-    bottom: 12px; /* slightly above base */
-    left: 50%;
-    transform: translateX(-50%);
-    width: 80%;
-    height: 50px;
-    border: none;
-    border-radius: 12px;
-    font-size: 1.2rem;
-    background: #5cb85c;
-    color: #fff;
-    text-align: center;
-    transition: background 0.2s, transform 0.1s;
+  .user-text { color: #b22222; font-weight: bold; } /* red for user */
+  .ai-text { color: #2e8b57; font-weight: bold; } /* green for AI */
+
+  /* Hold button container */
+  #hold-container {
     display: flex;
     justify-content: center;
-    align-items: center;
-    z-index: 10;
+    padding: 15px 0;
   }
 
-  #talkBtn.active {
-    background: #d9534f;
-    transform: scale(1.05);
+  #hold-button {
+    width: 80%;
+    max-width: 300px;
+    height: 60px;
+    font-size: 24px;
+    border-radius: 30px;
+    border: none;
+    background-color: #4caf50; /* green default */
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.1s;
+  }
+
+  #hold-button:active {
+    background-color: #b22222; /* red when pressed */
   }
 </style>
 </head>
 <body>
 
-<!-- Single horizontal sound bar -->
-<div id="soundBar"></div>
+<!-- Sound bar -->
+<div id="sound-bar"></div>
 
-<!-- Text area -->
-<div id="textArea">
-  <div class="userText" id="lastUser"></div>
-  <div class="aiText" id="lastAI"></div>
+<!-- Last two sentences -->
+<div id="text-box">
+  <div class="sentence user-text" id="user-sentence">User: </div>
+  <div class="sentence ai-text" id="ai-sentence">AI: </div>
 </div>
 
-<!-- Hold-to-talk button -->
-<button id="talkBtn">Hold</button>
+<!-- Hold button -->
+<div id="hold-container">
+  <button id="hold-button">HOLD</button>
+</div>
 
 <script>
-const talkBtn = document.getElementById('talkBtn');
-const soundBar = document.getElementById('soundBar');
-const lastUser = document.getElementById('lastUser');
-const lastAI = document.getElementById('lastAI');
+  const soundBar = document.getElementById('sound-bar');
+  const holdButton = document.getElementById('hold-button');
+  let userSpeaking = false;
+  let aiSpeaking = false;
 
-let mediaRecorder, audioChunks = [];
-let isRecording = false;
-let userStream;
+  // Dummy simulation for AI speaking and user speaking
+  function simulateSound(bar, isUser) {
+    if (!isUser && !aiSpeaking) return; // AI not speaking
+    if (isUser && !userSpeaking) return; // User not speaking
 
-// Animate bar by volume
-function animateBar(volume, speaker) {
-  soundBar.style.width = `${Math.min(10 + volume * 90, 100)}%`;
-  if(speaker === 'user') soundBar.style.background = '#d9534f';
-  else if(speaker === 'ai') soundBar.style.background = '#5cb85c';
-  else soundBar.style.background = '#ccc';
-}
-
-// Start recording
-async function startRecording() {
-  isRecording = true;
-  talkBtn.classList.add('active');
-  lastUser.textContent = '...';
-
-  userStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  mediaRecorder = new MediaRecorder(userStream);
-  audioChunks = [];
-  mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-  mediaRecorder.start();
-
-  // Microphone volume analysis
-  const audioContext = new AudioContext();
-  const source = audioContext.createMediaStreamSource(userStream);
-  const analyser = audioContext.createAnalyser();
-  analyser.fftSize = 256;
-  source.connect(analyser);
-  const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-  function updateUserBar() {
-    if(!isRecording) return;
-    analyser.getByteFrequencyData(dataArray);
-    const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length/255;
-    animateBar(avg, avg > 0.02 ? 'user' : null);
-    requestAnimationFrame(updateUserBar);
-  }
-  updateUserBar();
-}
-
-// Play TTS with real amplitude
-function playAudioWithBar(url, aiText) {
-  const audio = new Audio(url);
-  lastAI.textContent = '...';
-  const audioContext = new AudioContext();
-  const source = audioContext.createMediaElementSource(audio);
-  const analyser = audioContext.createAnalyser();
-  analyser.fftSize = 256;
-  source.connect(analyser);
-  analyser.connect(audioContext.destination);
-  const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-  function updateAIBar() {
-    analyser.getByteFrequencyData(dataArray);
-    const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length/255;
-    animateBar(avg, avg > 0.01 ? 'ai' : null);
-    if(!audio.paused) requestAnimationFrame(updateAIBar);
+    const intensity = Math.random() * 40 + 10; // wobble effect
+    bar.style.width = 100 - intensity + '%';
+    setTimeout(() => { bar.style.width = '100%'; }, 50);
   }
 
-  audio.onplay = () => { updateAIBar(); }
-  audio.onended = () => {
-    soundBar.style.width = '0%';
-    soundBar.style.background = '#ccc';
-    lastAI.textContent = aiText;
-  }
-  audio.play();
-}
-
-// Stop recording and send
-async function stopRecording() {
-  if(!mediaRecorder) return;
-  isRecording = false;
-  talkBtn.classList.remove('active');
-  soundBar.style.width = '0%';
-  soundBar.style.background = '#ccc';
-  mediaRecorder.stop();
-
-  mediaRecorder.onstop = async () => {
-    const blob = new Blob(audioChunks, { type: 'audio/webm' });
-    const formData = new FormData();
-    formData.append('file', blob, 'talk.webm');
-
-    try {
-      const response = await fetch('/process_audio', { method: 'POST', body: formData });
-      const data = await response.json();
-      lastUser.textContent = data.user_text; // last user sentence
-      playAudioWithBar(data.tts_url, data.ai_text); // last AI sentence
-    } catch(e) {
-      console.error('Error processing audio', e);
-      alert('Failed to process audio');
+  // Update sound bar based on who is speaking
+  setInterval(() => {
+    if (userSpeaking) {
+      soundBar.style.backgroundColor = '#b22222'; // red
+      simulateSound(soundBar, true);
+    } else if (aiSpeaking) {
+      soundBar.style.backgroundColor = '#2e8b57'; // green
+      simulateSound(soundBar, false);
+    } else {
+      soundBar.style.backgroundColor = 'grey'; // idle
+      soundBar.style.width = '100%';
     }
+  }, 100);
 
-    if(userStream) userStream.getTracks().forEach(track => track.stop());
+  // Hold button logic
+  holdButton.addEventListener('mousedown', () => {
+    userSpeaking = true;
+  });
+  holdButton.addEventListener('mouseup', () => {
+    userSpeaking = false;
+  });
+  holdButton.addEventListener('touchstart', () => {
+    userSpeaking = true;
+  });
+  holdButton.addEventListener('touchend', () => {
+    userSpeaking = false;
+  });
+
+  // Function to update text box
+  function updateText(userText, aiText) {
+    document.getElementById('user-sentence').textContent = 'User: ' + userText;
+    document.getElementById('ai-sentence').textContent = 'AI: ' + aiText;
   }
-}
 
-// Button events
-talkBtn.addEventListener('mousedown', startRecording);
-talkBtn.addEventListener('mouseup', stopRecording);
-talkBtn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
-talkBtn.addEventListener('touchend', e => { e.preventDefault(); stopRecording(); });
+  // Example: Update every 5s for demo
+  setInterval(() => {
+    if (!userSpeaking && !aiSpeaking) return;
+    updateText('Hello there!', 'Hi! How can I help?');
+    aiSpeaking = !aiSpeaking; // simulate alternating
+  }, 5000);
 </script>
+
 </body>
 </html>
+
