@@ -8,8 +8,10 @@
 <style>
 :root {
     --bg: #f3efe7;
-    --green: #2ecc71;
-    --red: #e74c3c;
+    --green1: #3df58a;
+    --green2: #18b45c;
+    --red1: #ff5a5a;
+    --red2: #b30000;
     --grey: #bbbbbb;
 }
 
@@ -40,20 +42,54 @@ body {
     margin-bottom: 60px;
 }
 
-/* Mic Button */
+/* ============================= */
+/* PREMIUM 3D MIC BUTTON */
+/* ============================= */
+
 #micBtn {
-    width: 130px;
-    height: 130px;
+    width: 140px;
+    height: 140px;
     border-radius: 50%;
-    background: var(--green);
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s ease;
+    cursor: pointer;
+
+    background: radial-gradient(circle at 30% 30%, var(--green1), var(--green2));
+
+    box-shadow:
+        0 15px 30px rgba(0,0,0,0.25),
+        inset 0 6px 10px rgba(255,255,255,0.4),
+        inset 0 -8px 15px rgba(0,0,0,0.3);
+
+    transition:
+        transform 0.18s cubic-bezier(.34,1.56,.64,1),
+        box-shadow 0.18s ease,
+        background 0.2s ease;
 }
 
+/* Recording state (red) */
 #micBtn.active {
-    background: var(--red);
+    background: radial-gradient(circle at 30% 30%, var(--red1), var(--red2));
+}
+
+/* Pressed down effect */
+#micBtn.pressed {
+    transform: scale(0.92);
+    box-shadow:
+        0 6px 15px rgba(0,0,0,0.35),
+        inset 0 8px 15px rgba(0,0,0,0.5);
+}
+
+/* Pop overshoot animation */
+#micBtn.pop {
+    animation: popEffect 0.25s ease;
+}
+
+@keyframes popEffect {
+    0% { transform: scale(0.92); }
+    60% { transform: scale(1.06); }
+    100% { transform: scale(1); }
 }
 
 #micBtn svg {
@@ -61,6 +97,7 @@ body {
     height: 60%;
     fill: white;
     pointer-events: none;
+    filter: drop-shadow(0 3px 4px rgba(0,0,0,0.4));
 }
 </style>
 </head>
@@ -70,7 +107,6 @@ body {
 <canvas id="visualizer"></canvas>
 
 <div id="micBtn">
-    <!-- Inline SVG Mic -->
     <svg viewBox="0 0 24 24">
         <path d="M12 14a3 3 0 003-3V5a3 3 0 10-6 0v6a3 3 0 003 3zm5-3a1 1 0 10-2 0 3 3 0 01-6 0 1 1 0 10-2 0 5 5 0 004 4.9V19H9a1 1 0 000 2h6a1 1 0 000-2h-2v-3.1A5 5 0 0017 11z"/>
     </svg>
@@ -86,7 +122,7 @@ let analyser;
 let dataArray;
 let mediaRecorder;
 let audioChunks = [];
-let state = "idle"; // idle | user | ai
+let state = "idle";
 
 function resizeCanvas() {
     canvas.width = canvas.offsetWidth;
@@ -157,12 +193,13 @@ function drawFlatLine() {
     ctx.stroke();
 }
 
-/* ---------- USER HOLD ---------- */
+/* USER HOLD */
 
 micBtn.addEventListener("pointerdown", async () => {
     await initAudio();
     state = "user";
     micBtn.classList.add("active");
+    micBtn.classList.add("pressed");
     audioChunks = [];
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -178,12 +215,19 @@ micBtn.addEventListener("pointerdown", async () => {
 window.addEventListener("pointerup", () => {
     if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
+        micBtn.classList.remove("pressed");
+        micBtn.classList.add("pop");
+
+        setTimeout(() => {
+            micBtn.classList.remove("pop");
+        }, 250);
+
         micBtn.classList.remove("active");
         state = "idle";
     }
 });
 
-/* ---------- SEND TO BACKEND ---------- */
+/* SEND TO BACKEND */
 
 async function sendAudio() {
     const blob = new Blob(audioChunks, { type: "audio/webm" });
@@ -207,7 +251,7 @@ async function sendAudio() {
     }
 }
 
-/* ---------- AI PLAYBACK ---------- */
+/* AI PLAYBACK */
 
 function playAI(url) {
     state = "ai";
@@ -226,7 +270,6 @@ function playAI(url) {
     audio.play();
 }
 
-/* Start idle flat line */
 drawFlatLine();
 </script>
 
