@@ -47,7 +47,6 @@ body {
 /* ============================= */
 /* PREMIUM 3D MIC BUTTON */
 /* ============================= */
-
 #micBtn {
     width: 140px;
     height: 140px;
@@ -56,22 +55,17 @@ body {
     align-items: center;
     justify-content: center;
     cursor: pointer;
-
     background: radial-gradient(circle at 30% 30%, var(--green1), var(--green2));
-
     box-shadow:
         0 15px 30px rgba(0,0,0,0.25),
         inset 0 6px 10px rgba(255,255,255,0.4),
         inset 0 -8px 15px rgba(0,0,0,0.3);
-
     transition:
         transform 0.18s cubic-bezier(.34,1.56,.64,1),
         box-shadow 0.18s ease,
         background 0.2s ease;
     position: relative;
-
-    /* faint breathing glow */
-    animation: idleGlow 3s ease-in-out infinite alternate;
+    animation: idleGlow 3s ease-in-out infinite alternate; /* faint breathing glow */
 }
 
 @keyframes idleGlow {
@@ -88,7 +82,7 @@ body {
 /* Recording state (red) */
 #micBtn.active {
     background: radial-gradient(circle at 30% 30%, var(--red1), var(--red2));
-    animation: none; /* stop idle glow while active */
+    animation: none; /* stop idle glow */
 }
 
 /* Pressed down effect */
@@ -195,9 +189,9 @@ function startVisualizer(sourceNode) {
 
     function draw() {
         requestAnimationFrame(draw);
-
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+        // Grey flat line when idle or thinking
         if (state === "idle" || state === "thinking") {
             drawFlatLine();
             return;
@@ -215,10 +209,8 @@ function startVisualizer(sourceNode) {
         for (let i = 0; i < bufferLength; i++) {
             const v = dataArray[i] / 128.0;
             const y = v * canvas.height / 2;
-
             if (i === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
-
             x += sliceWidth;
         }
 
@@ -240,20 +232,28 @@ function drawFlatLine() {
 
 /* USER HOLD */
 micBtn.addEventListener("pointerdown", async () => {
-    await initAudio();
-    state = "user";
-    micBtn.classList.add("active");
-    micBtn.classList.add("pressed");
-    audioChunks = [];
+    try {
+        await initAudio();
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const source = audioCtx.createMediaStreamSource(stream);
-    startVisualizer(source);
+        state = "user";
+        micBtn.classList.add("active", "pressed");
+        audioChunks = [];
 
-    mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-    mediaRecorder.onstop = sendAudio;
-    mediaRecorder.start();
+        const source = audioCtx.createMediaStreamSource(stream);
+        startVisualizer(source);
+
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.onstop = sendAudio;
+        mediaRecorder.start();
+
+        await new Promise(res => setTimeout(res, 50)); // ensure first frame recorded
+    } catch (err) {
+        console.error("Microphone error:", err);
+        state = "idle";
+        micBtn.classList.remove("active", "pressed");
+    }
 });
 
 window.addEventListener("pointerup", () => {
@@ -265,8 +265,8 @@ window.addEventListener("pointerup", () => {
         setTimeout(() => micBtn.classList.remove("pop"), 250);
 
         micBtn.classList.remove("active");
-        state = "thinking";
-        micBtn.classList.add("thinking"); // show gear while AI is thinking
+        state = "thinking"; 
+        micBtn.classList.add("thinking"); // show gear while AI thinking
     }
 });
 
@@ -282,15 +282,20 @@ async function sendAudio() {
     const formData = new FormData();
     formData.append("file", blob, "user.webm");
 
-    const response = await fetch("/process_audio", {
-        method: "POST",
-        body: formData
-    });
+    try {
+        const response = await fetch("/process_audio", {
+            method: "POST",
+            body: formData
+        });
+        const data = await response.json();
 
-    const data = await response.json();
-
-    if (data.tts_url) {
-        playAI(data.tts_url);
+        if (data.tts_url) {
+            playAI(data.tts_url);
+        }
+    } catch (err) {
+        console.error("Backend error:", err);
+        state = "idle";
+        micBtn.classList.remove("thinking");
     }
 }
 
