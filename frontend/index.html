@@ -1,145 +1,158 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Walkie-Talkie UI</title>
-<style>
-  body {
-    margin: 0;
-    font-family: sans-serif;
-    background-color: #f3f0eb;
-    height: 100vh;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    padding: 10px;
-    box-sizing: border-box;
-  }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Lucas11 Mobile</title>
+    <style>
+        :root { --neutral: #2ecc71; --active: #e74c3c; --bg: #121212; }
+        body { 
+            margin: 0; padding: 0; background: var(--bg); color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica;
+            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+        }
 
-  /* Sound bar */
-  #sound-bar-container {
-    width: 100%;
-    height: 20px;
-    background-color: grey;
-    border-radius: 10px;
-    overflow: hidden;
-    margin-bottom: 10px;
-    flex-shrink: 0;
-  }
+        /* Top Sound Bar */
+        #visualizer-container {
+            height: 100px; width: 100%; display: flex; align-items: center; 
+            justify-content: center; background: #1a1a1a; border-bottom: 1px solid #333;
+        }
+        canvas { width: 90%; height: 60px; }
 
-  #sound-bar {
-    width: 100%;
-    height: 100%;
-    background-color: grey;
-    border-radius: 10px;
-    transition: background-color 0.05s, width 0.05s;
-  }
+        /* Middle Text Box */
+        #transcript-box {
+            flex: 1; padding: 20px; display: flex; align-items: center; justify-content: center;
+            text-align: center; font-size: 1.2rem; line-height: 1.5; color: #bbb;
+        }
 
-  /* Text box */
-  #text-box {
-    flex: 1;
-    overflow-y: auto;
-    padding: 10px;
-    margin-bottom: 80px; /* space for button */
-    background-color: #fff8f0;
-    border-radius: 10px;
-  }
-
-  .sentence {
-    margin: 5px 0;
-    word-break: break-word;
-  }
-
-  .user-text { color: red; }
-  .ai-text { color: green; }
-
-  /* Hold button fixed above bottom */
-  #hold-button {
-    position: fixed;
-    bottom: 20px; /* adjust distance from bottom */
-    left: 50%;
-    transform: translateX(-50%);
-    width: 80%;
-    height: 60px; /* slightly larger */
-    border-radius: 10px;
-    background-color: green;
-    color: white;
-    font-size: 22px;
-    text-align: center;
-    line-height: 60px;
-    user-select: none;
-  }
-</style>
+        /* Bottom Hold-to-Speak Button */
+        #controls { padding: 30px; display: flex; justify-content: center; }
+        #holdBtn {
+            width: 100%; height: 80px; border-radius: 15px; border: none;
+            background: var(--neutral); color: white; font-size: 1.5rem; font-weight: bold;
+            touch-action: none; /* Prevents scrolling while holding */
+            transition: background 0.2s ease;
+        }
+        #holdBtn.active { background: var(--active); }
+    </style>
 </head>
 <body>
 
-<div id="sound-bar-container">
-  <div id="sound-bar"></div>
-</div>
+    <div id="visualizer-container">
+        <canvas id="visualizer"></canvas>
+    </div>
 
-<div id="text-box">
-  <div id="user-sentence" class="sentence user-text"></div>
-  <div id="ai-sentence" class="sentence ai-text"></div>
-</div>
+    <div id="transcript-box">
+        <p id="last-text">Hold the button to talk to Lucas11</p>
+    </div>
 
-<div id="hold-button">HOLD</div>
+    <div id="controls">
+        <button id="holdBtn">HOLD TO SPEAK</button>
+    </div>
 
 <script>
-  const holdButton = document.getElementById('hold-button');
-  const soundBar = document.getElementById('sound-bar');
-  const userSentence = document.getElementById('user-sentence');
-  const aiSentence = document.getElementById('ai-sentence');
+    const holdBtn = document.getElementById('holdBtn');
+    const transcriptText = document.getElementById('last-text');
+    const canvas = document.getElementById('visualizer');
+    const canvasCtx = canvas.getContext('2d');
 
-  let holding = false;
-  let audioLevel = 0;
-  let aiSpeaking = false;
+    let audioCtx, analyser, dataArray, source, mediaRecorder;
+    let audioChunks = [];
+    let isAIPlaying = false;
 
-  // Sound bar animation
-  function updateSoundBar() {
-    if(holding) {
-      soundBar.style.backgroundColor = `rgb(${Math.floor(audioLevel*255)},0,0)`; // red
-      soundBar.style.width = `${50 + audioLevel*50}%`;
-    } else if(aiSpeaking) {
-      soundBar.style.backgroundColor = `rgb(0, ${Math.floor(audioLevel*255)},0)`; // green
-      soundBar.style.width = `${50 + audioLevel*50}%`;
-    } else {
-      soundBar.style.backgroundColor = 'grey';
-      soundBar.style.width = '100%';
+    // --- Audio Visualizer Logic ---
+    function setupVisualizer(stream, color) {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (source) source.disconnect();
+        
+        analyser = audioCtx.createAnalyser();
+        source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+        analyser.fftSize = 256;
+        const bufferLength = analyser.frequencyBinCount;
+        dataArray = new Uint8Array(bufferLength);
+
+        function draw() {
+            requestAnimationFrame(draw);
+            analyser.getByteFrequencyData(dataArray);
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+            canvasCtx.fillStyle = color;
+            
+            const barWidth = (canvas.width / bufferLength) * 2.5;
+            let x = 0;
+            for(let i = 0; i < bufferLength; i++) {
+                const barHeight = dataArray[i] / 2;
+                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+        }
+        draw();
     }
-    requestAnimationFrame(updateSoundBar);
-  }
 
-  updateSoundBar();
+    // --- Recording Logic ---
+    holdBtn.addEventListener('pointerdown', async (e) => {
+        e.preventDefault();
+        holdBtn.classList.add('active');
+        audioChunks = [];
+        
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setupVisualizer(stream, '#e74c3c'); // Red for User
+        
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+        mediaRecorder.onstop = sendAudio;
+        mediaRecorder.start();
+    });
 
-  // Hold button events
-  holdButton.addEventListener('mousedown', () => {
-    holding = true;
-    holdButton.style.backgroundColor = 'red';
-    audioLevel = 0.5 + Math.random()*0.5;
-    userSentence.textContent = "User is speaking...";
-    aiSentence.textContent = "";
-  });
+    window.addEventListener('pointerup', () => {
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+            mediaRecorder.stop();
+            holdBtn.classList.remove('active');
+            // Stop visualizer bars temporarily
+            if (source) source.disconnect();
+        }
+    });
 
-  holdButton.addEventListener('mouseup', () => {
-    holding = false;
-    holdButton.style.backgroundColor = 'green';
-    audioLevel = 0;
-    userSentence.textContent = "User said something";
-    aiSpeaking = true;
-    audioLevel = 0.5 + Math.random()*0.5;
-    setTimeout(() => {
-      aiSpeaking = false;
-      audioLevel = 0;
-      aiSentence.textContent = "AI response here";
-    }, 2000);
-  });
+    async function sendAudio() {
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('file', blob, 'user.webm');
 
-  // Mobile touch support
-  holdButton.addEventListener('touchstart', (e) => { e.preventDefault(); holdButton.dispatchEvent(new Event('mousedown')); });
-  holdButton.addEventListener('touchend', (e) => { e.preventDefault(); holdButton.dispatchEvent(new Event('mouseup')); });
+        transcriptText.innerText = "...processing...";
 
+        const response = await fetch('/process_audio', { method: 'POST', body: formData });
+        const data = await response.json();
+
+        if (data.tts_url) {
+            playAIResponse(data.tts_url);
+        }
+    }
+
+    async function playAIResponse(url) {
+        const audio = new Audio(url);
+        audio.crossOrigin = "anonymous";
+        
+        // Connect AI Audio to Visualizer
+        const audioSource = audioCtx.createMediaElementSource(audio);
+        audioSource.connect(analyser);
+        analyser.connect(audioCtx.destination);
+        
+        setupVisualizer(audio.captureStream ? audio.captureStream() : streamFromElement(audio), '#2ecc71'); // Green for AI
+
+        audio.play();
+        // Since the backend doesn't return the transcript text yet, 
+        // we'll need a small tweak to your Python app to see the text here.
+        transcriptText.innerText = "Listening to Lucas11..."; 
+    }
+
+    // Helper for Chrome/Safari compatibility
+    function streamFromElement(el) {
+        const dest = audioCtx.createMediaStreamDestination();
+        const s = audioCtx.createMediaElementSource(el);
+        s.connect(dest);
+        s.connect(audioCtx.destination);
+        return dest.stream;
+    }
 </script>
 </body>
 </html>
