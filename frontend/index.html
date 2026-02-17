@@ -15,41 +15,24 @@
     overflow: hidden;
   }
 
-  /* Waveform bars container */
-  #waveforms {
-    display: flex;
-    justify-content: space-around;
-    gap: 10px;
-    height: 20%;
-    padding: 5px 10px;
-    box-sizing: border-box;
-  }
-
-  .bar-container {
-    flex: 1;
-    display: flex;
-    align-items: flex-end;
-    gap: 2px;
-  }
-
-  .bar {
-    flex: 1;
+  /* Single horizontal sound bar */
+  #soundBar {
+    height: 14px;
+    margin: 10px 10px 0 10px;
+    border-radius: 7px;
     background: #ccc;
-    border-radius: 2px;
-    height: 20px;
-    transition: height 0.05s;
+    transition: width 0.05s, background 0.05s;
   }
 
-  /* Text area */
+  /* Text display (last sentences only) */
   #textArea {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
     padding: 5px 10px;
-    overflow-y: auto;
-    background: #faf5ec;
-    font-size: 0.9rem;
-    line-height: 1.2rem;
-    border-top: 1px solid #ddd;
-    border-bottom: 1px solid #ddd;
+    font-size: 1rem;
+    overflow: hidden;
   }
 
   .userText { color: #d9534f; margin: 2px 0; }
@@ -57,17 +40,23 @@
 
   /* Hold to talk button */
   #talkBtn {
-    height: 15%;
-    margin: 5px 10px;
+    position: absolute;
+    bottom: 12px; /* slightly above base */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80%;
+    height: 50px;
     border: none;
     border-radius: 12px;
     font-size: 1.2rem;
     background: #5cb85c;
     color: #fff;
+    text-align: center;
     transition: background 0.2s, transform 0.1s;
     display: flex;
     justify-content: center;
     align-items: center;
+    z-index: 10;
   }
 
   #talkBtn.active {
@@ -78,90 +67,103 @@
 </head>
 <body>
 
-<!-- Waveforms -->
-<div id="waveforms">
-  <div id="userBars" class="bar-container"></div>
-  <div id="aiBars" class="bar-container"></div>
-</div>
+<!-- Single horizontal sound bar -->
+<div id="soundBar"></div>
 
 <!-- Text area -->
-<div id="textArea"></div>
+<div id="textArea">
+  <div class="userText" id="lastUser"></div>
+  <div class="aiText" id="lastAI"></div>
+</div>
 
 <!-- Hold-to-talk button -->
-<button id="talkBtn">Hold to Talk</button>
+<button id="talkBtn">Hold</button>
 
 <script>
 const talkBtn = document.getElementById('talkBtn');
-const textArea = document.getElementById('textArea');
-const userBarsContainer = document.getElementById('userBars');
-const aiBarsContainer = document.getElementById('aiBars');
+const soundBar = document.getElementById('soundBar');
+const lastUser = document.getElementById('lastUser');
+const lastAI = document.getElementById('lastAI');
 
 let mediaRecorder, audioChunks = [];
 let isRecording = false;
+let userStream;
 
-// Create waveform bars
-const createBars = (container, color) => {
-  const bars = [];
-  for(let i=0; i<20; i++) {
-    const bar = document.createElement('div');
-    bar.classList.add('bar');
-    bar.style.background = color;
-    container.appendChild(bar);
-    bars.push(bar);
-  }
-  return bars;
-};
-
-const userBars = createBars(userBarsContainer, '#d9534f');
-const aiBars = createBars(aiBarsContainer, '#5cb85c');
-
-// Animate bars with real audio data
-const animateBars = (bars, volume) => {
-  bars.forEach((bar, i) => {
-    const variance = Math.random() * 0.3; // add wobble
-    const height = Math.min(5 + (volume + variance) * 60, 60);
-    bar.style.height = `${height}px`;
-  });
-};
+// Animate bar by volume
+function animateBar(volume, speaker) {
+  soundBar.style.width = `${Math.min(10 + volume * 90, 100)}%`;
+  if(speaker === 'user') soundBar.style.background = '#d9534f';
+  else if(speaker === 'ai') soundBar.style.background = '#5cb85c';
+  else soundBar.style.background = '#ccc';
+}
 
 // Start recording
 async function startRecording() {
   isRecording = true;
   talkBtn.classList.add('active');
+  lastUser.textContent = '...';
 
-  textArea.innerHTML += `<div class="userText">You: ...</div>`;
-  textArea.scrollTop = textArea.scrollHeight;
-
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  mediaRecorder = new MediaRecorder(stream);
+  userStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  mediaRecorder = new MediaRecorder(userStream);
   audioChunks = [];
   mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
   mediaRecorder.start();
 
+  // Microphone volume analysis
   const audioContext = new AudioContext();
-  const source = audioContext.createMediaStreamSource(stream);
+  const source = audioContext.createMediaStreamSource(userStream);
   const analyser = audioContext.createAnalyser();
-  source.connect(analyser);
   analyser.fftSize = 256;
+  source.connect(analyser);
   const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-  // Animate user bars live
-  function update() {
+  function updateUserBar() {
     if(!isRecording) return;
     analyser.getByteFrequencyData(dataArray);
     const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length/255;
-    animateBars(userBars, avg);
-    requestAnimationFrame(update);
+    animateBar(avg, avg > 0.02 ? 'user' : null);
+    requestAnimationFrame(updateUserBar);
   }
-  update();
+  updateUserBar();
 }
 
-// Stop recording
+// Play TTS with real amplitude
+function playAudioWithBar(url, aiText) {
+  const audio = new Audio(url);
+  lastAI.textContent = '...';
+  const audioContext = new AudioContext();
+  const source = audioContext.createMediaElementSource(audio);
+  const analyser = audioContext.createAnalyser();
+  analyser.fftSize = 256;
+  source.connect(analyser);
+  analyser.connect(audioContext.destination);
+  const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+  function updateAIBar() {
+    analyser.getByteFrequencyData(dataArray);
+    const avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length/255;
+    animateBar(avg, avg > 0.01 ? 'ai' : null);
+    if(!audio.paused) requestAnimationFrame(updateAIBar);
+  }
+
+  audio.onplay = () => { updateAIBar(); }
+  audio.onended = () => {
+    soundBar.style.width = '0%';
+    soundBar.style.background = '#ccc';
+    lastAI.textContent = aiText;
+  }
+  audio.play();
+}
+
+// Stop recording and send
 async function stopRecording() {
   if(!mediaRecorder) return;
   isRecording = false;
   talkBtn.classList.remove('active');
+  soundBar.style.width = '0%';
+  soundBar.style.background = '#ccc';
   mediaRecorder.stop();
+
   mediaRecorder.onstop = async () => {
     const blob = new Blob(audioChunks, { type: 'audio/webm' });
     const formData = new FormData();
@@ -170,29 +172,14 @@ async function stopRecording() {
     try {
       const response = await fetch('/process_audio', { method: 'POST', body: formData });
       const data = await response.json();
-      const aiAudio = new Audio(data.tts_url);
-
-      // Animate AI bars while playing
-      aiAudio.onplay = () => {
-        const aiLine = document.createElement('div');
-        aiLine.classList.add('aiText');
-        aiLine.textContent = 'AI: ...';
-        textArea.appendChild(aiLine);
-        textArea.scrollTop = textArea.scrollHeight;
-
-        const aiInterval = setInterval(() => {
-          animateBars(aiBars, Math.random());
-        }, 50);
-
-        aiAudio.onended = () => {
-          clearInterval(aiInterval);
-        };
-      };
-      aiAudio.play();
+      lastUser.textContent = data.user_text; // last user sentence
+      playAudioWithBar(data.tts_url, data.ai_text); // last AI sentence
     } catch(e) {
       console.error('Error processing audio', e);
       alert('Failed to process audio');
     }
+
+    if(userStream) userStream.getTracks().forEach(track => track.stop());
   }
 }
 
