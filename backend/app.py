@@ -3,7 +3,8 @@ from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from gtts import gTTS
-import uuid, os, tempfile, traceback
+from pydub import AudioSegment
+import uuid, os, tempfile
 
 app = FastAPI()
 
@@ -25,50 +26,48 @@ async def process_audio(file: UploadFile = File(...)):
     input_path = os.path.join(tempfile.gettempdir(), f"{file_id}.{ext}")
     output_path = os.path.join(tempfile.gettempdir(), f"{file_id}.mp3")
 
-    try:
-        # 1️⃣ Save uploaded audio
-        with open(input_path, "wb") as f:
-            f.write(await file.read())
-        print(f"Saved input audio at {input_path}")
+    # Save uploaded file
+    with open(input_path, "wb") as f:
+        f.write(await file.read())
 
-        # 2️⃣ Transcribe
-        with open(input_path, "rb") as f:
-            transcript = client.audio.transcriptions.create(model="whisper-1", file=f).text
-        print(f"Transcript: {transcript}")
+    # Convert WebM/Opus to WAV for Whisper
+    if ext == "webm":
+        wav_path = os.path.join(tempfile.gettempdir(), f"{file_id}.wav")
+        AudioSegment.from_file(input_path, format="webm").export(wav_path, format="wav")
+        input_for_whisper = wav_path
+    else:
+        input_for_whisper = input_path
 
-        # 3️⃣ GPT response
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are Lucas11. Witty, max 10 words."},
-                {"role": "user", "content": transcript}
-            ]
-        )
-        ai_text = response.choices[0].message.content
-        print(f"AI Response: {ai_text}")
-
-        # 4️⃣ Generate TTS
-        tts = gTTS(ai_text, lang="en")
-        tts.save(output_path)
-        print(f"TTS saved at {output_path}")
-
-        # 5️⃣ Cleanup input file
+    # Transcribe audio
+    with open(input_for_whisper, "rb") as f:
         try:
-            os.remove(input_path)
-            print(f"Deleted input file {input_path}")
+            transcript = client.audio.transcriptions.create(model="whisper-1", file=f).text
         except Exception as e:
-            print(f"Failed to delete input file: {e}")
+            # Cleanup files if transcription fails
+            if os.path.exists(input_path): os.remove(input_path)
+            if ext == "webm" and os.path.exists(wav_path): os.remove(wav_path)
+            return JSONResponse({"error": "Audio transcription failed", "details": str(e)}, status_code=400)
 
-        return JSONResponse({"tts_url": f"{HOST_URL}/get_audio/{file_id}"})
+    # GPT response
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are Lucas11. Witty, max 10 words."},
+            {"role": "user", "content": transcript}
+        ]
+    )
+    ai_text = response.choices[0].message.content
 
-    except Exception as e:
-        # Catch any error and print stack trace for debugging
-        print("Error in /process_audio:", e)
-        traceback.print_exc()
-        return JSONResponse(
-            {"error": "Failed to process audio", "details": str(e)},
-            status_code=500
-        )
+    # Generate TTS
+    tts = gTTS(ai_text, lang="en")
+    tts.save(output_path)
+
+    # Cleanup input files
+    if os.path.exists(input_path): os.remove(input_path)
+    if ext == "webm" and os.path.exists(wav_path): os.remove(wav_path)
+
+    # Return TTS URL
+    return JSONResponse({"tts_url": f"{HOST_URL}/get_audio/{file_id}"})
 
 
 @app.get("/get_audio/{file_id}")
@@ -96,3 +95,4 @@ async def serve_index():
                 return f.read()
 
     return HTMLResponse("Error: index.html not found.", status_code=500)
+
