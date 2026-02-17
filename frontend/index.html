@@ -6,32 +6,37 @@
     <title>Lucas11 Mobile</title>
     <style>
         :root { --neutral: #2ecc71; --active: #e74c3c; --bg: #121212; }
+        
+        * { box-sizing: border-box; }
+
         body { 
             margin: 0; padding: 0; background: var(--bg); color: white;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica;
-            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+            font-family: -apple-system, system-ui, sans-serif;
+            display: flex; flex-direction: column; 
+            height: 100vh; height: 100dvh; /* Fixes mobile screen cutoff */
+            overflow: hidden;
         }
 
-        /* Top Sound Bar */
         #visualizer-container {
-            height: 100px; width: 100%; display: flex; align-items: center; 
-            justify-content: center; background: #1a1a1a; border-bottom: 1px solid #333;
+            height: 20%; width: 100%; display: flex; align-items: center; 
+            justify-content: center; background: #1a1a1a;
         }
         canvas { width: 90%; height: 60px; }
 
-        /* Middle Text Box */
         #transcript-box {
-            flex: 1; padding: 20px; display: flex; align-items: center; justify-content: center;
-            text-align: center; font-size: 1.2rem; line-height: 1.5; color: #bbb;
+            flex: 1; padding: 20px; display: flex; align-items: center; 
+            justify-content: center; text-align: center; font-size: 1.2rem;
         }
 
-        /* Bottom Hold-to-Speak Button */
-        #controls { padding: 30px; display: flex; justify-content: center; }
+        #controls { 
+            padding: 20px; 
+            padding-bottom: env(safe-area-inset-bottom); /* Fixes iPhone notch issue */
+        }
+
         #holdBtn {
             width: 100%; height: 80px; border-radius: 15px; border: none;
             background: var(--neutral); color: white; font-size: 1.5rem; font-weight: bold;
-            touch-action: none; /* Prevents scrolling while holding */
-            transition: background 0.2s ease;
+            touch-action: none; 
         }
         #holdBtn.active { background: var(--active); }
     </style>
@@ -43,7 +48,7 @@
     </div>
 
     <div id="transcript-box">
-        <p id="last-text">Hold the button to talk to Lucas11</p>
+        <p id="last-text">Hold to talk to Lucas11</p>
     </div>
 
     <div id="controls">
@@ -58,17 +63,22 @@
 
     let audioCtx, analyser, dataArray, source, mediaRecorder;
     let audioChunks = [];
-    let isAIPlaying = false;
 
-    // --- Audio Visualizer Logic ---
-    function setupVisualizer(stream, color) {
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if (source) source.disconnect();
-        
-        analyser = audioCtx.createAnalyser();
-        source = audioCtx.createMediaStreamSource(stream);
-        source.connect(analyser);
-        analyser.fftSize = 256;
+    async function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+            await audioCtx.resume();
+        }
+    }
+
+    function setupVisualizer(streamSource, color) {
+        if (!analyser) {
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 256;
+        }
+        streamSource.connect(analyser);
         const bufferLength = analyser.frequencyBinCount;
         dataArray = new Uint8Array(bufferLength);
 
@@ -77,26 +87,25 @@
             analyser.getByteFrequencyData(dataArray);
             canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
             canvasCtx.fillStyle = color;
-            
-            const barWidth = (canvas.width / bufferLength) * 2.5;
             let x = 0;
             for(let i = 0; i < bufferLength; i++) {
                 const barHeight = dataArray[i] / 2;
-                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
-                x += barWidth + 1;
+                canvasCtx.fillRect(x, canvas.height - barHeight, 2, barHeight);
+                x += 3;
             }
         }
         draw();
     }
 
-    // --- Recording Logic ---
     holdBtn.addEventListener('pointerdown', async (e) => {
         e.preventDefault();
+        await initAudio(); // CRITICAL: Unlocks audio on mobile
         holdBtn.classList.add('active');
         audioChunks = [];
         
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setupVisualizer(stream, '#e74c3c'); // Red for User
+        const micSource = audioCtx.createMediaStreamSource(stream);
+        setupVisualizer(micSource, '#e74c3c');
         
         mediaRecorder = new MediaRecorder(stream);
         mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
@@ -108,52 +117,31 @@
         if (mediaRecorder && mediaRecorder.state === "recording") {
             mediaRecorder.stop();
             holdBtn.classList.remove('active');
-            // Stop visualizer bars temporarily
-            if (source) source.disconnect();
         }
     });
 
     async function sendAudio() {
         const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        if (blob.size < 1000) return;
+
         const formData = new FormData();
         formData.append('file', blob, 'user.webm');
-
-        transcriptText.innerText = "...processing...";
+        transcriptText.innerText = "Thinking...";
 
         const response = await fetch('/process_audio', { method: 'POST', body: formData });
         const data = await response.json();
-
-        if (data.tts_url) {
-            playAIResponse(data.tts_url);
-        }
+        if (data.tts_url) playAI(data.tts_url);
     }
 
-    async function playAIResponse(url) {
+    function playAI(url) {
         const audio = new Audio(url);
         audio.crossOrigin = "anonymous";
-        
-        // Connect AI Audio to Visualizer
-        const audioSource = audioCtx.createMediaElementSource(audio);
-        audioSource.connect(analyser);
-        analyser.connect(audioCtx.destination);
-        
-        setupVisualizer(audio.captureStream ? audio.captureStream() : streamFromElement(audio), '#2ecc71'); // Green for AI
-
+        const aiSource = audioCtx.createMediaElementSource(audio);
+        setupVisualizer(aiSource, '#2ecc71');
+        aiSource.connect(audioCtx.destination);
         audio.play();
-        // Since the backend doesn't return the transcript text yet, 
-        // we'll need a small tweak to your Python app to see the text here.
-        transcriptText.innerText = "Listening to Lucas11..."; 
-    }
-
-    // Helper for Chrome/Safari compatibility
-    function streamFromElement(el) {
-        const dest = audioCtx.createMediaStreamDestination();
-        const s = audioCtx.createMediaElementSource(el);
-        s.connect(dest);
-        s.connect(audioCtx.destination);
-        return dest.stream;
+        transcriptText.innerText = "Lucas11 is speaking...";
     }
 </script>
 </body>
 </html>
-
