@@ -8,13 +8,14 @@
   body {
     margin: 0;
     font-family: sans-serif;
-    background-color: #f3f0eb; /* light beige */
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
+    background-color: #f3f0eb;
     height: 100vh;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
     padding: 10px;
+    box-sizing: border-box;
   }
 
   /* Sound bar */
@@ -25,23 +26,23 @@
     border-radius: 10px;
     overflow: hidden;
     margin-bottom: 10px;
-    position: relative;
+    flex-shrink: 0;
   }
 
   #sound-bar {
-    height: 100%;
     width: 100%;
+    height: 100%;
     background-color: grey;
     border-radius: 10px;
-    transition: background-color 0.1s;
+    transition: background-color 0.05s, width 0.05s;
   }
 
-  /* Text display */
+  /* Text box */
   #text-box {
-    max-height: 150px;
+    flex: 1;
     overflow-y: auto;
     padding: 10px;
-    margin-bottom: 10px;
+    margin-bottom: 80px; /* space for button */
     background-color: #fff8f0;
     border-radius: 10px;
   }
@@ -51,33 +52,24 @@
     word-break: break-word;
   }
 
-  .user-text { color: #b22222; font-weight: bold; }
-  .ai-text { color: #2e8b57; font-weight: bold; }
+  .user-text { color: red; }
+  .ai-text { color: green; }
 
-  /* Hold button */
-  #hold-container {
-    display: flex;
-    justify-content: center;
-    padding-bottom: 10px;
-  }
-
+  /* Hold button fixed above bottom */
   #hold-button {
+    position: fixed;
+    bottom: 20px; /* adjust distance from bottom */
+    left: 50%;
+    transform: translateX(-50%);
     width: 80%;
-    max-width: 300px;
-    height: 60px;
-    font-size: 24px;
-    border-radius: 30px;
-    border: none;
-    background-color: #4caf50;
+    height: 60px; /* slightly larger */
+    border-radius: 10px;
+    background-color: green;
     color: white;
-    cursor: pointer;
-    transition: background-color 0.1s;
-    position: relative;
-    z-index: 10;
-  }
-
-  #hold-button:active {
-    background-color: #b22222;
+    font-size: 22px;
+    text-align: center;
+    line-height: 60px;
+    user-select: none;
   }
 </style>
 </head>
@@ -88,91 +80,67 @@
 </div>
 
 <div id="text-box">
-  <div class="sentence user-text" id="user-sentence">User: </div>
-  <div class="sentence ai-text" id="ai-sentence">AI: </div>
+  <div id="user-sentence" class="sentence user-text"></div>
+  <div id="ai-sentence" class="sentence ai-text"></div>
 </div>
 
-<div id="hold-container">
-  <button id="hold-button">HOLD</button>
-</div>
+<div id="hold-button">HOLD</div>
 
 <script>
-const soundBar = document.getElementById('sound-bar');
-const holdButton = document.getElementById('hold-button');
-const userSentence = document.getElementById('user-sentence');
-const aiSentence = document.getElementById('ai-sentence');
+  const holdButton = document.getElementById('hold-button');
+  const soundBar = document.getElementById('sound-bar');
+  const userSentence = document.getElementById('user-sentence');
+  const aiSentence = document.getElementById('ai-sentence');
 
-let userSpeaking = false;
-let aiSpeaking = false;
-let audioContext, analyser, dataArray, source;
+  let holding = false;
+  let audioLevel = 0;
+  let aiSpeaking = false;
 
-// Handle hold button
-holdButton.addEventListener('mousedown', () => { startSpeaking(true); });
-holdButton.addEventListener('mouseup', () => { stopSpeaking(true); });
-holdButton.addEventListener('touchstart', () => { startSpeaking(true); });
-holdButton.addEventListener('touchend', () => { stopSpeaking(true); });
-
-function startSpeaking(isUser=true) {
-  if (isUser) userSpeaking = true;
-  holdButton.style.backgroundColor = '#b22222';
-  if (!audioContext) initMic();
-}
-
-function stopSpeaking(isUser=true) {
-  if (isUser) userSpeaking = false;
-  holdButton.style.backgroundColor = '#4caf50';
-}
-
-function initMic() {
-  navigator.mediaDevices.getUserMedia({ audio: true })
-    .then(stream => {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      source = audioContext.createMediaStreamSource(stream);
-      analyser = audioContext.createAnalyser();
-      analyser.fftSize = 512;
-      dataArray = new Uint8Array(analyser.frequencyBinCount);
-      source.connect(analyser);
-      animateSoundBar();
-    })
-    .catch(err => console.error('Microphone access denied:', err));
-}
-
-// Animate sound bar vertically (wobble effect)
-function animateSoundBar() {
-  requestAnimationFrame(animateSoundBar);
-  let level = 0;
-
-  if (userSpeaking) {
-    analyser.getByteFrequencyData(dataArray);
-    let avg = dataArray.reduce((a,b)=>a+b,0)/dataArray.length;
-    level = Math.min(Math.max(avg/2, 5), 100); // user red
-    soundBar.style.backgroundColor = '#b22222';
-  } else if (aiSpeaking) {
-    level = 30 + Math.random() * 50; // AI green wobble
-    soundBar.style.backgroundColor = '#2e8b57';
-  } else {
-    level = 100; // flat grey
-    soundBar.style.backgroundColor = 'grey';
+  // Sound bar animation
+  function updateSoundBar() {
+    if(holding) {
+      soundBar.style.backgroundColor = `rgb(${Math.floor(audioLevel*255)},0,0)`; // red
+      soundBar.style.width = `${50 + audioLevel*50}%`;
+    } else if(aiSpeaking) {
+      soundBar.style.backgroundColor = `rgb(0, ${Math.floor(audioLevel*255)},0)`; // green
+      soundBar.style.width = `${50 + audioLevel*50}%`;
+    } else {
+      soundBar.style.backgroundColor = 'grey';
+      soundBar.style.width = '100%';
+    }
+    requestAnimationFrame(updateSoundBar);
   }
 
-  soundBar.style.height = level + '%';
-}
+  updateSoundBar();
 
-// Update last two sentences
-function updateText(userText, aiText) {
-  userSentence.textContent = 'User: ' + userText;
-  aiSentence.textContent = 'AI: ' + aiText;
-}
+  // Hold button events
+  holdButton.addEventListener('mousedown', () => {
+    holding = true;
+    holdButton.style.backgroundColor = 'red';
+    audioLevel = 0.5 + Math.random()*0.5;
+    userSentence.textContent = "User is speaking...";
+    aiSentence.textContent = "";
+  });
 
-// Demo: simulate AI speaking
-setInterval(() => {
-  if (!userSpeaking) {
-    aiSpeaking = !aiSpeaking;
-    updateText('Hello!', aiSpeaking ? 'Hi! How can I help?' : 'Waiting...');
-  }
-}, 5000);
+  holdButton.addEventListener('mouseup', () => {
+    holding = false;
+    holdButton.style.backgroundColor = 'green';
+    audioLevel = 0;
+    userSentence.textContent = "User said something";
+    aiSpeaking = true;
+    audioLevel = 0.5 + Math.random()*0.5;
+    setTimeout(() => {
+      aiSpeaking = false;
+      audioLevel = 0;
+      aiSentence.textContent = "AI response here";
+    }, 2000);
+  });
+
+  // Mobile touch support
+  holdButton.addEventListener('touchstart', (e) => { e.preventDefault(); holdButton.dispatchEvent(new Event('mousedown')); });
+  holdButton.addEventListener('touchend', (e) => { e.preventDefault(); holdButton.dispatchEvent(new Event('mouseup')); });
+
 </script>
-
 </body>
 </html>
 
