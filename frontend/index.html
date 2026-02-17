@@ -44,7 +44,10 @@ body {
     margin-bottom: 60px;
 }
 
+/* ============================= */
 /* PREMIUM 3D MIC BUTTON */
+/* ============================= */
+
 #micBtn {
     width: 140px;
     height: 140px;
@@ -115,7 +118,9 @@ body {
     filter: drop-shadow(0 3px 4px rgba(0,0,0,0.4));
 }
 
+/* ------------------------- */
 /* SUBTLE THINKING GEAR */
+/* ------------------------- */
 #micBtn .gear {
     position: absolute;
     top: -25px;
@@ -163,6 +168,7 @@ let dataArray;
 let mediaRecorder;
 let audioChunks = [];
 let state = "idle";
+let pressStartTime = 0;
 
 function resizeCanvas() {
     canvas.width = canvas.offsetWidth;
@@ -235,7 +241,11 @@ function drawFlatLine() {
 
 /* USER HOLD */
 micBtn.addEventListener("pointerdown", async () => {
+    pressStartTime = performance.now();
     await initAudio();
+    state = "user";
+    micBtn.classList.add("active");
+    micBtn.classList.add("pressed");
     audioChunks = [];
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -245,28 +255,32 @@ micBtn.addEventListener("pointerdown", async () => {
     mediaRecorder = new MediaRecorder(stream);
     mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
     mediaRecorder.onstop = sendAudio;
-
-    // Only now enable active state to prevent premature red
-    mediaRecorder.onstart = () => {
-        state = "user";
-        micBtn.classList.add("active", "pressed");
-    };
-
     mediaRecorder.start();
 });
 
 window.addEventListener("pointerup", () => {
+    const pressDuration = performance.now() - pressStartTime;
+
     if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
-        micBtn.classList.remove("pressed");
-        micBtn.classList.add("pop");
-
-        setTimeout(() => micBtn.classList.remove("pop"), 250);
-
-        micBtn.classList.remove("active");
-        state = "thinking";
-        micBtn.classList.add("thinking"); // show gear while AI is thinking
     }
+
+    micBtn.classList.remove("pressed");
+
+    if (pressDuration < 200) {
+        // discard short taps
+        audioChunks = [];
+        micBtn.classList.remove("active");
+        state = "idle";
+        return;
+    }
+
+    micBtn.classList.add("pop");
+    setTimeout(() => micBtn.classList.remove("pop"), 250);
+
+    micBtn.classList.remove("active");
+    state = "thinking";
+    micBtn.classList.add("thinking"); // show gear while AI is thinking
 });
 
 /* SEND TO BACKEND */
