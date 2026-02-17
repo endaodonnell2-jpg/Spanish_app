@@ -7,80 +7,94 @@
 
 <style>
 :root {
-    --neutral: #2ecc71;
-    --active: #e74c3c;
-    --bg: #f3efe7; /* beige background */
+    --bg: #f3efe7;
+    --green: #2ecc71;
+    --red: #e74c3c;
+    --grey: #bbbbbb;
 }
 
-* { box-sizing: border-box; }
+* {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
 
 body {
     margin: 0;
-    padding: 0;
     background: var(--bg);
-    font-family: -apple-system, system-ui, sans-serif;
     height: 100vh;
     height: 100dvh;
     display: flex;
     flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    font-family: -apple-system, system-ui, sans-serif;
+}
+
+/* Waveform */
+#visualizer {
+    width: 90%;
+    height: 100px;
+    margin-bottom: 60px;
+}
+
+/* Mic Button */
+#micBtn {
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    background: var(--green);
+    display: flex;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
+    transition: background 0.2s ease;
 }
 
-/* Sound bar */
-#visualizer-container {
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    margin-bottom: 40px;
+#micBtn.active {
+    background: var(--red);
 }
 
-canvas {
-    width: 85%;
-    height: 70px;
-}
-
-/* Hold button centered */
-#holdBtn {
-    width: 80%;
-    max-width: 350px;
-    height: 90px;
-    border-radius: 20px;
-    border: none;
-    background: var(--neutral);
-    color: white;
-    font-size: 1.4rem;
-    font-weight: bold;
-    touch-action: none;
-}
-
-#holdBtn.active {
-    background: var(--active);
+#micBtn svg {
+    width: 60%;
+    height: 60%;
+    fill: white;
+    pointer-events: none;
 }
 </style>
 </head>
 
 <body>
 
-<div id="visualizer-container">
-    <canvas id="visualizer"></canvas>
+<canvas id="visualizer"></canvas>
+
+<div id="micBtn">
+    <!-- Inline SVG Mic -->
+    <svg viewBox="0 0 24 24">
+        <path d="M12 14a3 3 0 003-3V5a3 3 0 10-6 0v6a3 3 0 003 3zm5-3a1 1 0 10-2 0 3 3 0 01-6 0 1 1 0 10-2 0 5 5 0 004 4.9V19H9a1 1 0 000 2h6a1 1 0 000-2h-2v-3.1A5 5 0 0017 11z"/>
+    </svg>
 </div>
 
-<button id="holdBtn">HOLD TO SPEAK</button>
-
 <script>
-const holdBtn = document.getElementById('holdBtn');
-const canvas = document.getElementById('visualizer');
-const canvasCtx = canvas.getContext('2d');
+const canvas = document.getElementById("visualizer");
+const ctx = canvas.getContext("2d");
+const micBtn = document.getElementById("micBtn");
 
 let audioCtx;
 let analyser;
 let dataArray;
 let mediaRecorder;
 let audioChunks = [];
+let state = "idle"; // idle | user | ai
 
-/* ---------- AUDIO INIT ---------- */
+function resizeCanvas() {
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+}
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
+
 async function initAudio() {
     if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -90,54 +104,73 @@ async function initAudio() {
     }
 }
 
-/* ---------- VISUALIZER ---------- */
-function setupVisualizer(sourceNode, color) {
+function startVisualizer(sourceNode) {
     analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
-
+    analyser.fftSize = 2048;
     sourceNode.connect(analyser);
 
-    const bufferLength = analyser.frequencyBinCount;
+    const bufferLength = analyser.fftSize;
     dataArray = new Uint8Array(bufferLength);
 
     function draw() {
         requestAnimationFrame(draw);
-        analyser.getByteFrequencyData(dataArray);
 
-        canvas.width = canvas.offsetWidth;
-        canvas.height = canvas.offsetHeight;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-        canvasCtx.fillStyle = color;
+        if (state === "idle") {
+            drawFlatLine();
+            return;
+        }
 
+        analyser.getByteTimeDomainData(dataArray);
+
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = state === "user" ? "#e74c3c" : "#2ecc71";
+        ctx.beginPath();
+
+        const sliceWidth = canvas.width / bufferLength;
         let x = 0;
-        const barWidth = 3;
 
         for (let i = 0; i < bufferLength; i++) {
-            const barHeight = dataArray[i] / 2;
-            canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
-            x += barWidth + 2;
+            const v = dataArray[i] / 128.0;
+            const y = v * canvas.height / 2;
+
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+
+            x += sliceWidth;
         }
+
+        ctx.lineTo(canvas.width, canvas.height / 2);
+        ctx.stroke();
     }
 
     draw();
 }
 
-/* ---------- HOLD TO SPEAK ---------- */
-holdBtn.addEventListener("pointerdown", async (e) => {
-    e.preventDefault();
-    await initAudio();
+function drawFlatLine() {
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#bbbbbb";
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height / 2);
+    ctx.lineTo(canvas.width, canvas.height / 2);
+    ctx.stroke();
+}
 
-    holdBtn.classList.add("active");
+/* ---------- USER HOLD ---------- */
+
+micBtn.addEventListener("pointerdown", async () => {
+    await initAudio();
+    state = "user";
+    micBtn.classList.add("active");
     audioChunks = [];
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const micSource = audioCtx.createMediaStreamSource(stream);
-
-    setupVisualizer(micSource, "#e74c3c"); // red user bars
+    const source = audioCtx.createMediaStreamSource(stream);
+    startVisualizer(source);
 
     mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
     mediaRecorder.onstop = sendAudio;
     mediaRecorder.start();
 });
@@ -145,14 +178,19 @@ holdBtn.addEventListener("pointerdown", async (e) => {
 window.addEventListener("pointerup", () => {
     if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
-        holdBtn.classList.remove("active");
+        micBtn.classList.remove("active");
+        state = "idle";
     }
 });
 
-/* ---------- SEND AUDIO ---------- */
+/* ---------- SEND TO BACKEND ---------- */
+
 async function sendAudio() {
     const blob = new Blob(audioChunks, { type: "audio/webm" });
-    if (blob.size < 1000) return;
+    if (blob.size < 1000) {
+        state = "idle";
+        return;
+    }
 
     const formData = new FormData();
     formData.append("file", blob, "user.webm");
@@ -170,17 +208,26 @@ async function sendAudio() {
 }
 
 /* ---------- AI PLAYBACK ---------- */
+
 function playAI(url) {
+    state = "ai";
+
     const audio = new Audio(url);
     audio.crossOrigin = "anonymous";
 
-    const aiSource = audioCtx.createMediaElementSource(audio);
-    setupVisualizer(aiSource, "#2ecc71"); // green AI bars
+    const source = audioCtx.createMediaElementSource(audio);
+    startVisualizer(source);
+    source.connect(audioCtx.destination);
 
-    aiSource.connect(audioCtx.destination);
+    audio.onended = () => {
+        state = "idle";
+    };
 
     audio.play();
 }
+
+/* Start idle flat line */
+drawFlatLine();
 </script>
 
 </body>
