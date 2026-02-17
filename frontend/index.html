@@ -1,51 +1,88 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lucas11 Walkie-Talkie</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+    button { font-size: 20px; padding: 20px; border-radius: 10px; }
+    audio { margin-top: 20px; width: 80%; }
+  </style>
 </head>
 <body>
-<h2>🎙️ Lucas11 Walkie-Talkie</h2>
-<button id="talkBtn">Hold to Talk</button>
-<audio id="ttsAudio" controls></audio>
+  <h2>🎙️ Lucas11 Walkie-Talkie</h2>
+  <button id="talkBtn">Hold to Talk</button>
+  <audio id="ttsAudio" controls></audio>
 
-<script>
-let mediaRecorder;
-let audioChunks = [];
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let isRecording = false;
 
-const btn = document.getElementById("talkBtn");
-const ttsAudio = document.getElementById("ttsAudio");
+    const btn = document.getElementById("talkBtn");
+    const ttsAudio = document.getElementById("ttsAudio");
 
-// Start recording on mouse down
-btn.addEventListener("mousedown", async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
-    mediaRecorder = new MediaRecorder(stream);
-    audioChunks = [];
-    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-    mediaRecorder.start();
-});
+    async function startRecording(e) {
+      e.preventDefault();
+      if (isRecording) return;
 
-// Stop recording on mouse up
-btn.addEventListener("mouseup", async () => {
-    mediaRecorder.stop();
-    mediaRecorder.onstop = async () => {
-        const blob = new Blob(audioChunks, {type:'audio/wav'});
+      isRecording = true;
+      btn.innerText = "Recording...";
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+
+      audioChunks = [];
+      mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
+      mediaRecorder.start();
+    }
+
+    async function stopRecording(e) {
+      e.preventDefault();
+      if (!isRecording) return;
+
+      isRecording = false;
+      btn.innerText = "Thinking...";
+
+      mediaRecorder.stop();
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, { type: "audio/webm" });
         const formData = new FormData();
-        formData.append("file", blob, "talk.wav");
+        formData.append("file", blob, "talk.webm");
 
-        // ✅ FIXED: Use relative path
-        const response = await fetch("/process_audio", {
+        try {
+          const response = await fetch("/process_audio", {
             method: "POST",
             body: formData
-        });
+          });
 
-        const data = await response.json();
+          if (!response.ok) throw new Error("Server error");
 
-        // Play returned audio
-        ttsAudio.src = data.tts_url;
-        ttsAudio.play();
+          const data = await response.json();
+          ttsAudio.src = data.tts_url;
+          await ttsAudio.play();
+        } catch (err) {
+          console.error("Error sending audio:", err);
+          alert("Failed to process audio. Try again.");
+        } finally {
+          btn.innerText = "Hold to Talk";
+        }
+      };
     }
-});
-</script>
+
+    // Desktop events
+    btn.addEventListener("mousedown", startRecording);
+    btn.addEventListener("mouseup", stopRecording);
+
+    // Mobile events
+    btn.addEventListener("touchstart", startRecording);
+    btn.addEventListener("touchend", stopRecording);
+
+    // Prevent touch scrolling while holding button
+    btn.addEventListener("touchmove", e => e.preventDefault());
+  </script>
 </body>
 </html>
 
