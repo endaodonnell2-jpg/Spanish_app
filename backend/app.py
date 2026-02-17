@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from gtts import gTTS
-import uuid, os, tempfile, shutil
+import uuid, os, tempfile
 
 app = FastAPI()
 
@@ -14,14 +14,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# OpenAI client (key from Render environment variables)
+# OpenAI client
 client = OpenAI(api_key=os.getenv("Lucas14"))
+HOST_URL = os.getenv("HOST_URL", "http://localhost:10000")
 
 @app.post("/process_audio")
 async def process_audio(file: UploadFile = File(...)):
-    # Unique ID for this request
     file_id = uuid.uuid4().hex
-    # Use WebM for mobile browser compatibility, fallback to WAV if needed
     ext = file.filename.split(".")[-1].lower()
     input_path = os.path.join(tempfile.gettempdir(), f"{file_id}.{ext}")
     output_path = os.path.join(tempfile.gettempdir(), f"{file_id}.mp3")
@@ -30,13 +29,11 @@ async def process_audio(file: UploadFile = File(...)):
     with open(input_path, "wb") as f:
         f.write(await file.read())
 
-    # Transcribe using OpenAI Whisper
+    # Transcribe
     with open(input_path, "rb") as f:
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1", file=f
-        ).text
+        transcript = client.audio.transcriptions.create(model="whisper-1", file=f).text
 
-    # GPT response (Lucas11 personality)
+    # GPT response
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
@@ -46,19 +43,18 @@ async def process_audio(file: UploadFile = File(...)):
     )
     ai_text = response.choices[0].message.content
 
-    # Generate TTS (gTTS, fallback to MP3)
+    # Generate TTS
     tts = gTTS(ai_text, lang="en")
     tts.save(output_path)
 
-    # Optional: cleanup uploaded file
-    if os.path.exists(input_path):
-        try:
-            os.remove(input_path)
-        except:
-            pass
+    # Cleanup input
+    try:
+        os.remove(input_path)
+    except:
+        pass
 
-    # Return URL to frontend
-    return JSONResponse({"tts_url": f"/get_audio/{file_id}"})
+    return JSONResponse({"tts_url": f"{HOST_URL}/get_audio/{file_id}"})
+
 
 @app.get("/get_audio/{file_id}")
 async def get_audio(file_id: str):
@@ -67,9 +63,9 @@ async def get_audio(file_id: str):
         return FileResponse(file_path, media_type="audio/mpeg")
     return JSONResponse({"error": "Audio not found"}, status_code=404)
 
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
-    # Serve the frontend index.html
     current_dir = os.path.dirname(os.path.abspath(__file__))
     root_dir = os.path.dirname(current_dir)
     target_path = os.path.join(root_dir, "frontend", "index.html")
