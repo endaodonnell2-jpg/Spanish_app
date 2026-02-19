@@ -52,7 +52,7 @@ async def process_audio(file: UploadFile = File(...)):
     response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
-            {"role": "system", "content": "You are Lucas11. Witty, max 10 words."},
+            {"role": "system", "content": "You are Sarah. flirty, forthcoming, sexual inneundo, max 30 words."},
             {"role": "user", "content": transcript}
         ]
     )
