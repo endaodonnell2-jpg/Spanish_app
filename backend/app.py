@@ -19,8 +19,15 @@ app.add_middleware(
 client = OpenAI(api_key=os.getenv("Lucas14"))
 HOST_URL = os.getenv("HOST_URL", "http://localhost:10000")
 
+# --- MEMORY START ---
+# We initialize the memory with Sarah's persona instructions.
+memory = [{"role": "system", "content": "You are Sarah, forthcoming, max 50 words."}]
+# --- MEMORY END ---
+
 @app.post("/process_audio")
 async def process_audio(file: UploadFile = File(...)):
+    global memory # Tell Python we want to update the memory list defined above
+    
     file_id = uuid.uuid4().hex
     ext = file.filename.split(".")[-1].lower()
     input_path = os.path.join(tempfile.gettempdir(), f"{file_id}.{ext}")
@@ -43,20 +50,28 @@ async def process_audio(file: UploadFile = File(...)):
         try:
             transcript = client.audio.transcriptions.create(model="whisper-1", file=f).text
         except Exception as e:
-            # Cleanup files if transcription fails
             if os.path.exists(input_path): os.remove(input_path)
             if ext == "webm" and os.path.exists(wav_path): os.remove(wav_path)
             return JSONResponse({"error": "Audio transcription failed", "details": str(e)}, status_code=400)
 
-    # GPT response
+    # --- MEMORY LOGIC START ---
+    # 1. Add your new message to memory
+    memory.append({"role": "user", "content": transcript})
+
+    # 2. Limit memory to last 12 messages (6 exchanges) + the System prompt at index 0
+    if len(memory) > 13:
+        memory = [memory[0]] + memory[-12:]
+
+    # 3. Pass the entire memory list to GPT
     response = client.chat.completions.create(
         model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You are Sarah. flirty, forthcoming, sexual inneundo, max 30 words."},
-            {"role": "user", "content": transcript}
-        ]
+        messages=memory
     )
     ai_text = response.choices[0].message.content
+
+    # 4. Save Sarah's response to memory
+    memory.append({"role": "assistant", "content": ai_text})
+    # --- MEMORY LOGIC END ---
 
     # Generate TTS
     tts = gTTS(ai_text, lang="en")
@@ -88,11 +103,9 @@ async def serve_index():
         with open(target_path, "r", encoding="utf-8") as f:
             return f.read()
 
-    # Backup: search whole project
     for root, dirs, files in os.walk(root_dir):
         if "index.html" in files:
             with open(os.path.join(root, "index.html"), "r", encoding="utf-8") as f:
                 return f.read()
 
     return HTMLResponse("Error: index.html not found.", status_code=500)
-
