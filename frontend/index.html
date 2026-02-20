@@ -12,10 +12,11 @@ let state = "idle";
 let pressStartTime = 0;
 
 let currentAudio = null;
+let currentSource = null;
 let currentController = null;
 let latestRequestId = 0;
 
-/* ---------------- AUDIO SAFETY ---------------- */
+/* ---------------- AUDIO CONTEXT ---------------- */
 
 async function ensureAudioRunning() {
     if (!audioCtx) {
@@ -26,9 +27,11 @@ async function ensureAudioRunning() {
     }
 }
 
-/* Resume audio on ANY touch (fixes flat grey line bug) */
-window.addEventListener("pointerdown", ensureAudioRunning, { passive: true });
-window.addEventListener("touchstart", ensureAudioRunning, { passive: true });
+/* Fix mobile suspension */
+window.addEventListener("pointerdown", ensureAudioRunning);
+window.addEventListener("touchstart", ensureAudioRunning);
+
+/* ---------------- CLEANUP ---------------- */
 
 function stopCurrentAudio() {
     if (currentAudio) {
@@ -36,6 +39,10 @@ function stopCurrentAudio() {
         currentAudio.src = "";
         currentAudio.load();
         currentAudio = null;
+    }
+    if (currentSource) {
+        try { currentSource.disconnect(); } catch {}
+        currentSource = null;
     }
 }
 
@@ -46,7 +53,7 @@ function cancelRequest() {
     }
 }
 
-/* ---------------- VISUALIZER ---------------- */
+/* ---------------- CANVAS ---------------- */
 
 function resizeCanvas() {
     canvas.width = canvas.offsetWidth;
@@ -65,7 +72,6 @@ function startVisualizer(sourceNode) {
 
     function draw() {
         requestAnimationFrame(draw);
-
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         if (state === "idle" || state === "thinking") {
@@ -110,10 +116,9 @@ function drawFlatLine() {
 
 micBtn.addEventListener("pointerdown", async (e) => {
     e.stopPropagation();
-
     await ensureAudioRunning();
 
-    // STOP AI instantly
+    // HARD INTERRUPT EVERYTHING
     stopCurrentAudio();
     cancelRequest();
 
@@ -192,7 +197,7 @@ async function sendAudio() {
 
     } catch (err) {
         if (err.name !== "AbortError") {
-            console.error(err);
+            console.error("Request error:", err);
         }
     }
 }
@@ -210,6 +215,8 @@ function playAI(url) {
     currentAudio = audio;
 
     const source = audioCtx.createMediaElementSource(audio);
+    currentSource = source;
+
     startVisualizer(source);
     source.connect(audioCtx.destination);
 
@@ -222,4 +229,3 @@ function playAI(url) {
 
 drawFlatLine();
 </script>
-
