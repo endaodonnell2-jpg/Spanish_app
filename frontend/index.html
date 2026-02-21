@@ -54,18 +54,12 @@ body {
         0 15px 30px rgba(0,0,0,0.25),
         inset 0 6px 10px rgba(255,255,255,0.4),
         inset 0 -8px 15px rgba(0,0,0,0.3);
-    transition: transform 0.18s ease, box-shadow 0.18s ease;
-    animation: idleGlow 3s ease-in-out infinite alternate;
-}
-
-@keyframes idleGlow {
-    0% { box-shadow: 0 15px 30px rgba(0,0,0,0.25); }
-    100% { box-shadow: 0 18px 36px rgba(0,0,0,0.28); }
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
 }
 
 #micBtn.active {
     background: radial-gradient(circle at 30% 30%, var(--red1), var(--red2));
-    animation: none;
 }
 
 #micBtn.pressed {
@@ -73,13 +67,13 @@ body {
 }
 
 #micBtn.thinking {
-    animation: thinkingPulse 1.2s ease-in-out infinite;
+    animation: pulseThinking 1.2s ease-in-out infinite;
 }
 
-@keyframes thinkingPulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.08); }
-    100% { transform: scale(1); }
+@keyframes pulseThinking {
+    0% { transform: scale(1); box-shadow: 0 15px 30px rgba(0,0,0,0.25); }
+    50% { transform: scale(1.08); box-shadow: 0 20px 40px rgba(0,0,0,0.35); }
+    100% { transform: scale(1); box-shadow: 0 15px 30px rgba(0,0,0,0.25); }
 }
 
 #micBtn svg {
@@ -105,202 +99,177 @@ body {
 document.addEventListener("DOMContentLoaded", () => {
 
 const canvas = document.getElementById("visualizer");
-const ctx = canvas.getContext("2d");
 const micBtn = document.getElementById("micBtn");
+const ctx = canvas.getContext("2d");
 
-/* ===== AUDIO CORE (PERMANENT) ===== */
-
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-const analyser = audioCtx.createAnalyser();
-analyser.fftSize = 2048;
-const dataArray = new Uint8Array(analyser.fftSize);
-
-/* Silent oscillator keeps Safari alive */
-const oscillator = audioCtx.createOscillator();
-const silentGain = audioCtx.createGain();
-silentGain.gain.value = 0.0001;
-oscillator.connect(silentGain);
-silentGain.connect(audioCtx.destination);
-oscillator.start();
-
-/* Resume audio on any touch */
-async function forceResume(){
-    if(audioCtx.state !== "running"){
-        await audioCtx.resume();
-    }
-}
-window.addEventListener("touchstart", forceResume, {passive:true});
-window.addEventListener("pointerdown", forceResume, {passive:true});
-
-/* ===== STATE ===== */
-
-let state="idle";
+let audioCtx;
+let analyser;
+let dataArray;
 let mediaRecorder;
-let audioChunks=[];
-let currentAudio=null;
-let currentController=null;
-let latestRequestId=0;
-let pressStartTime=0;
+let audioChunks = [];
+let state = "idle";
+let currentAudio = null;
 
-/* ===== CANVAS LOOP (ONE LOOP ONLY) ===== */
-
-function resize(){
-    canvas.width=canvas.offsetWidth;
-    canvas.height=canvas.offsetHeight;
+function resizeCanvas() {
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
 }
-resize();
-window.addEventListener("resize",resize);
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
 
-function draw(){
-    requestAnimationFrame(draw);
+function drawFlatLine() {
     ctx.clearRect(0,0,canvas.width,canvas.height);
-
-    if(state==="idle"){
-        ctx.strokeStyle="#bbbbbb";
-        ctx.lineWidth=2;
-        ctx.beginPath();
-        ctx.moveTo(0,canvas.height/2);
-        ctx.lineTo(canvas.width,canvas.height/2);
-        ctx.stroke();
-        return;
-    }
-
-    analyser.getByteTimeDomainData(dataArray);
-
-    ctx.lineWidth=3;
-    ctx.strokeStyle= state==="user" ? "#e74c3c" : "#2ecc71";
+    ctx.strokeStyle = "#bbbbbb";
+    ctx.lineWidth = 2;
     ctx.beginPath();
-
-    const sliceWidth=canvas.width/dataArray.length;
-    let x=0;
-
-    for(let i=0;i<dataArray.length;i++){
-        const v=dataArray[i]/128.0;
-        const y=v*canvas.height/2;
-        if(i===0) ctx.moveTo(x,y);
-        else ctx.lineTo(x,y);
-        x+=sliceWidth;
-    }
-
+    ctx.moveTo(0, canvas.height/2);
+    ctx.lineTo(canvas.width, canvas.height/2);
     ctx.stroke();
 }
-draw();
+drawFlatLine();
 
-/* ===== RECORD ===== */
+async function ensureAudio() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") await audioCtx.resume();
+}
 
-micBtn.addEventListener("pointerdown", async(e)=>{
-    e.stopPropagation();
-    await forceResume();
+micBtn.addEventListener("pointerdown", async (e) => {
 
-    stopAudio();
-    cancelRequest();
+    if (state === "ai" || state === "thinking") return; // 🔒 LOCK INTERACTION
 
-    state="user";
+    await ensureAudio();
+
+    state = "user";
     micBtn.classList.add("active","pressed");
-    pressStartTime=performance.now();
-    audioChunks=[];
 
-    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
-    const source=audioCtx.createMediaStreamSource(stream);
-    source.connect(analyser);
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    const source = audioCtx.createMediaStreamSource(stream);
+    startVisualizer(source);
 
-    mediaRecorder=new MediaRecorder(stream);
-    mediaRecorder.ondataavailable=e=>audioChunks.push(e.data);
-    mediaRecorder.onstop=sendAudio;
+    audioChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.onstop = sendAudio;
     mediaRecorder.start();
 });
 
-function stopRecording(){
-    const duration=performance.now()-pressStartTime;
+window.addEventListener("pointerup", () => {
+    if (state !== "user") return;
 
-    if(mediaRecorder && mediaRecorder.state==="recording"){
+    micBtn.classList.remove("pressed","active");
+    state = "thinking";
+    micBtn.classList.add("thinking");
+
+    if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
     }
+});
 
-    micBtn.classList.remove("pressed");
+async function sendAudio() {
 
-    if(duration<200){
-        state="idle";
-        micBtn.classList.remove("active");
-        return;
-    }
-
-    micBtn.classList.remove("active");
-    state="thinking";
-    micBtn.classList.add("thinking");
-}
-
-window.addEventListener("pointerup",stopRecording);
-window.addEventListener("pointercancel",stopRecording);
-
-/* ===== SEND ===== */
-
-async function sendAudio(){
-    const blob=new Blob(audioChunks,{type:"audio/webm"});
-    if(blob.size<1000){
-        state="idle";
+    const blob = new Blob(audioChunks, {type:"audio/webm"});
+    if (!blob || blob.size < 1500) {
+        state = "idle";
         micBtn.classList.remove("thinking");
+        drawFlatLine();
         return;
     }
 
-    const formData=new FormData();
-    formData.append("file",blob);
+    const formData = new FormData();
+    formData.append("file", blob, "user.webm");
 
-    currentController=new AbortController();
-    const requestId=++latestRequestId;
-
-    try{
-        const res=await fetch("/process_audio",{
+    try {
+        const res = await fetch("/process_audio", {
             method:"POST",
-            body:formData,
-            signal:currentController.signal
+            body:formData
         });
 
-        const data=await res.json();
+        if (!res.ok) throw new Error("Upload failed");
 
-        if(requestId===latestRequestId && data.tts_url){
-            playAI(data.tts_url);
-        }
+        const data = await res.json();
+        if (data.tts_url) playAI(data.tts_url);
 
-    }catch(err){}
+    } catch(err) {
+        console.error(err);
+        state = "idle";
+        micBtn.classList.remove("thinking");
+    }
 }
 
-/* ===== AI ===== */
+function playAI(url) {
 
-function playAI(url){
-    stopAudio();
-    state="ai";
+    state = "ai";
     micBtn.classList.remove("thinking");
 
-    const audio=new Audio(url+"?t="+Date.now());
-    currentAudio=audio;
+    const audio = new Audio(url + "?t=" + Date.now());
+    currentAudio = audio;
 
-    const source=audioCtx.createMediaElementSource(audio);
+    const source = audioCtx.createMediaElementSource(audio);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
     source.connect(analyser);
     analyser.connect(audioCtx.destination);
 
-    audio.onended=()=>state="idle";
-    audio.play().catch(()=>{});
+    dataArray = new Uint8Array(analyser.fftSize);
+
+    function draw() {
+        if (state !== "ai") return;
+        requestAnimationFrame(draw);
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        analyser.getByteTimeDomainData(dataArray);
+        ctx.strokeStyle = "#2ecc71";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        let slice = canvas.width/dataArray.length;
+        let x=0;
+        for(let i=0;i<dataArray.length;i++){
+            let v=dataArray[i]/128;
+            let y=v*canvas.height/2;
+            if(i===0) ctx.moveTo(x,y);
+            else ctx.lineTo(x,y);
+            x+=slice;
+        }
+        ctx.stroke();
+    }
+    draw();
+
+    audio.onended = () => {
+        state = "idle";
+        drawFlatLine();
+    };
+
+    audio.play();
 }
 
-function stopAudio(){
-    if(currentAudio){
-        currentAudio.pause();
-        currentAudio.src="";
-        currentAudio.load();
-        currentAudio=null;
-    }
-}
+function startVisualizer(source) {
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    dataArray = new Uint8Array(analyser.fftSize);
 
-function cancelRequest(){
-    if(currentController){
-        currentController.abort();
-        currentController=null;
+    function draw() {
+        if (state !== "user") return;
+        requestAnimationFrame(draw);
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        analyser.getByteTimeDomainData(dataArray);
+        ctx.strokeStyle = "#e74c3c";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        let slice = canvas.width/dataArray.length;
+        let x=0;
+        for(let i=0;i<dataArray.length;i++){
+            let v=dataArray[i]/128;
+            let y=v*canvas.height/2;
+            if(i===0) ctx.moveTo(x,y);
+            else ctx.lineTo(x,y);
+            x+=slice;
+        }
+        ctx.stroke();
     }
+    draw();
 }
 
 });
 </script>
-
 </body>
 </html>
