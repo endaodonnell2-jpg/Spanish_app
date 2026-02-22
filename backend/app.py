@@ -4,6 +4,7 @@ from modules.conversation import register_conversation_routes
 from modules.intro import register_intro_routes
 import uuid
 
+# --- APP SETUP ---
 app = FastAPI()
 
 app.add_middleware(
@@ -14,7 +15,7 @@ app.add_middleware(
 )
 
 # --- SHARED MEMORY START ---
-user_memories = {}
+user_memories = {}  # only needed for conversation module
 # --- SHARED MEMORY END ---
 
 # --- SESSION MIDDLEWARE ---
@@ -27,9 +28,9 @@ async def add_session_id(request: Request, call_next):
     response.set_cookie(key="lucas_session_id", value=session_id, httponly=True)
     return response
 
-# --- REGISTER MODULES ---
+# --- REGISTER ROUTES --- 
+# Uncomment the module you want to run
 register_intro_routes(app)
-# register_conversation_routes(app, user_memories)  # uncomment when ready
-
+# register_conversation_routes(app, user_memories)
 
 
