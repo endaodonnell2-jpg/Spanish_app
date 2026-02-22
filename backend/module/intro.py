@@ -71,7 +71,10 @@ def register_intro_routes(app: FastAPI):
         html_code = f"""
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-        .outer-perimeter {{ max-width: 380px; margin: auto; border: 4px solid #2ecc71; border-radius: 25px; padding: 15px; background: #f9fdfb; font-family: sans-serif; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }}
+        .outer-perimeter {{ max-width: 380px; margin: auto; border: 4px solid #2ecc71; border-radius: 25px; padding: 15px; background: #f9fdfb; font-family: sans-serif; box-shadow: 0 10px 30px rgba(0,0,0,0.1); position: relative; }}
+        /* NEW: Back Button Style */
+        .home-link {{ display: block; text-align: left; margin-bottom: 10px; color: #7f8c8d; text-decoration: none; font-size: 14px; font-weight: bold; }}
+        
         .box {{ background: white; border: 2px solid #2ecc71; border-radius: 15px; padding: 15px; margin-bottom: 15px; }}
         #script-box {{ min-height: 110px; text-align: center; display: flex; flex-direction: column; justify-content: center; }}
         #txt {{ font-size: 18px; color: #2c3e50; font-weight: 500; margin-top: 10px; line-height: 1.4; }}
@@ -84,6 +87,8 @@ def register_intro_routes(app: FastAPI):
         </style>
 
         <div class="outer-perimeter">
+            <a href="/" class="home-link">← Home</a>
+            
             <div class="box" id="script-box">
                 <canvas id="wave"></canvas>
                 <div id="txt">Welcome to the Spanish Lecture</div>
@@ -125,6 +130,12 @@ def register_intro_routes(app: FastAPI):
                 txt.innerText = "Lesson Complete!";
                 list.innerHTML = "";
                 cancelAnimationFrame(raf);
+                
+                // NEW: Automatic Redirect after 0.5 seconds
+                setTimeout(() => {{
+                    window.location.href = "/";
+                }}, 500);
+                
                 return;
             }}
 
