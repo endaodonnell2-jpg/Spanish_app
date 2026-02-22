@@ -1,15 +1,20 @@
 # backend/app.py
 import sys
 import os
+import uuid
 
-# --- Ensure 'module' folder is visible ---
-sys.path.append(os.path.join(os.path.dirname(__file__), "module"))
+# --- FIX: Ensure the parent directory is in sys.path ---
+# This allows 'from module.conversation' to work correctly on Render/Linux
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+
+# These imports will now work correctly
 from module.conversation import register_conversation_routes
 from module.intro import register_intro_routes
-import uuid
 
 # --- APP SETUP ---
 app = FastAPI()
@@ -22,7 +27,7 @@ app.add_middleware(
 )
 
 # --- SHARED MEMORY ---
-user_memories = {}  # only needed for conversation module
+user_memories = {}  # Keep shared state for conversation
 
 # --- SESSION MIDDLEWARE ---
 @app.middleware("http")
@@ -59,5 +64,6 @@ async def root_menu():
     return Response(content=html, media_type="text/html")
 
 # --- REGISTER MODULE ROUTES ---
+# Passing 'app' and 'user_memories' exactly as before
 register_intro_routes(app)
 register_conversation_routes(app, user_memories)
