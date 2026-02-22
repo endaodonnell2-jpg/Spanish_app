@@ -7,7 +7,7 @@ from openai import OpenAI
 from gtts import gTTS
 
 def register_conversation_routes(app: FastAPI, user_memories: dict):
-    openai_client = OpenAI()
+    openai_client = OpenAI(api_key="Lucas14")
 
     @app.get("/conversation")
     async def conversation_page():
