@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from modules.conversation import register_conversation_routes
 import uuid
 
+from modules.intro import router as intro_router
+app.include_router(intro_router)
+
 app = FastAPI()
 
 app.add_middleware(
@@ -28,4 +31,5 @@ async def add_session_id(request: Request, call_next):
     return response
 
 # Register conversation module
-register_conversation_routes(app, user_memories)
+#register_conversation_routes(app, user_memories)
+
