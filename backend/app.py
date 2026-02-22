@@ -4,17 +4,12 @@ import os
 import uuid
 
 # --- FIX: Ensure the parent directory is in sys.path ---
-# This allows 'from module.conversation' to work correctly on Render/Linux
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-
-# These imports will now work correctly
-from module.conversation import register_conversation_routes
-from module.intro import register_intro_routes
 
 # --- APP SETUP ---
 app = FastAPI()
@@ -63,7 +58,9 @@ async def root_menu():
     """
     return Response(content=html, media_type="text/html")
 
-# --- REGISTER MODULE ROUTES ---
-# Passing 'app' and 'user_memories' exactly as before
+# --- IMPORT MODULES AND REGISTER ROUTES ---
+from module.intro import register_intro_routes
+from module.conversation import register_conversation_routes
+
 register_intro_routes(app)
 register_conversation_routes(app, user_memories)
