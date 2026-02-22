@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from openai import OpenAI
 from gtts import gTTS
 from pydub import AudioSegment
@@ -11,6 +11,15 @@ HOST_URL = os.getenv("HOST_URL", "http://localhost:10000")
 
 
 def register_conversation_routes(app: FastAPI, user_memories: dict):
+
+    # --- HOME BUTTON PAGE ---
+    @app.get("/conversation", response_class=HTMLResponse)
+    async def conversation_page():
+        return """
+        <a href="/" style="font-family:sans-serif; text-decoration:none; color:black; font-weight:bold;">← HOME</a>
+        <h1 style="font-family:sans-serif; text-align:center;">Conversation Mode</h1>
+        <p style="font-family:sans-serif; text-align:center;">(Logic is running in background)</p>
+        """
 
     @app.post("/process_audio")
     async def process_audio(request: Request, file: UploadFile = File(...)):
