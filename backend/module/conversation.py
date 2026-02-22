@@ -1,146 +1,337 @@
-from fastapi import FastAPI, UploadFile, File, Request
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
-from openai import OpenAI
-from gtts import gTTS
-from pydub import AudioSegment
-import uuid, os, tempfile
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Lucas11</title>
 
-# OpenAI client
-client = OpenAI(api_key=os.getenv("Lucas14"))
-HOST_URL = os.getenv("HOST_URL", "http://localhost:10000")
+<style>
+:root {
+--bg: #f3efe7;
+--green1: #3df58a; 
+--green2: #18b45c; 
+--red1: #ff5a5a; 
+--red2: #b30000; 
+--grey: #bbbbbb;
+}
 
-def register_conversation_routes(app: FastAPI, user_memories: dict):
+*{
+ box-sizing: border-box;
+ user-select: none;
+ -webkit-user-select: none;
+ -webkit-touch-callout: none;
+ -webkit-tap-highlight-color: transparent;
+}
 
-    # --- UI WITH HOME BUTTON ---
-    @app.get("/conversation", response_class=HTMLResponse)
-    async def conversation_page():
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-                body { font-family: sans-serif; text-align: center; padding-top: 50px; background: #f4f7f6; }
-                .home-btn { position: absolute; top: 20px; left: 20px; text-decoration: none; color: #7f8c8d; font-weight: bold; border: 1px solid #ccc; padding: 5px 10px; border-radius: 8px; }
-                #record-btn { width: 150px; height: 150px; border-radius: 50%; border: none; background: #e74c3c; color: white; font-weight: bold; cursor: pointer; font-size: 16px; }
-                #record-btn:active { background: #c0392b; }
-                #status { margin-top: 20px; font-weight: bold; color: #2c3e50; }
-            </style>
-        </head>
-        <body>
-            <a href="/" class="home-btn">← HOME</a>
-            <h1>Talk to Sarah</h1>
-            <button id="record-btn">HOLD TO TALK</button>
-            <div id="status">Ready</div>
+body {
+margin:0;
+background:var(--bg);
+height:100vh;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+overflow:hidden;
+font-family:-apple-system,system-ui,sans-serif;
+position:relative;
+}
 
-            <script>
-                let mediaRecorder;
-                let audioChunks = [];
-                const btn = document.getElementById('record-btn');
-                const status = document.getElementById('status');
+/* ---------------- HOME BUTTON ---------------- */
 
-                btn.onmousedown = async () => {
-                    audioChunks = [];
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(stream);
-                    mediaRecorder.start();
-                    status.innerText = "Listening...";
-                    
-                    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-                    mediaRecorder.onstop = async () => {
-                        status.innerText = "Sarah is thinking...";
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                        const formData = new FormData();
-                        formData.append('file', audioBlob, 'audio.webm');
+#homeBtn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: #3498db;
+  color: white;
+  text-decoration: none;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-weight: bold;
+  font-size: 16px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  transition: background 0.2s ease;
+  z-index: 1000;
+}
 
-                        const response = await fetch('/process_audio', { method: 'POST', body: formData });
-                        const data = await response.json();
-                        if (data.tts_url) {
-                            const audio = new Audio(data.tts_url);
-                            audio.play();
-                            status.innerText = "Sarah is speaking...";
-                            audio.onended = () => status.innerText = "Ready";
-                        }
-                    };
-                };
+#homeBtn:hover {
+  background: #2980b9;
+}
 
-                btn.onmouseup = () => {
-                    if (mediaRecorder) {
-                        mediaRecorder.stop();
-                        status.innerText = "Processing...";
-                    }
-                };
-            </script>
-        </body>
-        </html>
-        """
+/* ---------------- VISUALIZER ---------------- */
 
-    @app.post("/process_audio")
-    async def process_audio(request: Request, file: UploadFile = File(...)):
+#visualizer {
+ width:90%;
+ height:100px;
+ margin-bottom:60px;
+}
 
-        session_id = request.cookies.get("lucas_session_id")
+/* ---------------- MIC BUTTON ---------------- */
 
-        # Create memory for new session
-        if session_id not in user_memories:
-            user_memories[session_id] = [
-                {"role": "system", "content": "You are Sarah, forthcoming, max 50 words."}
-            ]
+#micBtn {
+width:140px;
+height:140px;
+border-radius:50%;
+display:flex;
+align-items:center;
+justify-content:center;
+cursor:pointer;
+background: radial-gradient(circle at 30% 30%, var(--green1), var(--green2));
+box-shadow:
+ 0 15px 30px rgba(0,0,0,0.25),
+ inset 0 6px 10px rgba(255,255,255,0.4),
+ inset 0 -8px 15px rgba(0,0,0,0.3);
+transition:
+ transform 0.18s cubic-bezier(.34,1.56,.64,1),
+ box-shadow 0.18s ease,
+ background 0.2s ease;
+position: relative;
+animation: idleGlow 3s ease-in-out infinite alternate;
+}
 
-        memory = user_memories[session_id]
+@keyframes idleGlow {
+0% {
+ box-shadow:0 15px 30px rgba(0,0,0,0.25),
+ inset 0 6px 10px rgba(255,255,255,0.4),
+ inset 0 -8px 15px rgba(0,0,0,0.3);
+}
+100% {
+ box-shadow:0 18px 36px rgba(0,0,0,0.28),
+ inset 0 6px 10px rgba(255,255,255,0.45),
+ inset 0 -8px 15px rgba(0,0,0,0.32);
+}
+}
 
-        file_id = uuid.uuid4().hex
-        ext = file.filename.split(".")[-1].lower()
-        input_path = os.path.join(tempfile.gettempdir(), f"{file_id}.{ext}")
-        output_path = os.path.join(tempfile.gettempdir(), f"{file_id}.mp3")
+#micBtn.active {
+ background: radial-gradient(circle at 30% 30%, var(--red1), var(--red2));
+ animation:none;
+}
 
-        # Save uploaded file
-        with open(input_path, "wb") as f:
-            f.write(await file.read())
+#micBtn.pressed {
+ transform:scale(0.92);
+ box-shadow:
+  0 6px 15px rgba(0,0,0,0.35),
+  inset 0 8px 15px rgba(0,0,0,0.5);
+}
 
-        # Convert WebM/Opus to WAV for Whisper
-        if ext == "webm":
-            wav_path = os.path.join(tempfile.gettempdir(), f"{file_id}.wav")
-            AudioSegment.from_file(input_path, format="webm").export(wav_path, format="wav")
-            input_for_whisper = wav_path
-        else:
-            input_for_whisper = input_path
+#micBtn.pop {
+ animation: popEffect 0.25s ease;
+}
 
-        # Transcribe audio
-        try:
-            with open(input_for_whisper, "rb") as f:
-                transcript = client.audio.transcriptions.create(model="whisper-1", file=f).text
-        except Exception as e:
-            if os.path.exists(input_path): os.remove(input_path)
-            if ext == "webm" and os.path.exists(input_for_whisper): os.remove(input_for_whisper)
-            return JSONResponse({"error": "Audio transcription failed", "details": str(e)}, status_code=400)
+@keyframes popEffect {
+ 0% {transform:scale(0.92);}
+ 60% {transform:scale(1.06);}
+ 100% {transform:scale(1);}
+}
 
-        # --- MEMORY LOGIC ---
-        memory.append({"role": "user", "content": transcript})
+#micBtn .svgIcon {
+ width:60%;
+ height:60%;
+ fill:white;
+ pointer-events:none;
+ filter:drop-shadow(0 3px 4px rgba(0,0,0,0.4));
+}
 
-        if len(memory) > 13:
-            user_memories[session_id] = [memory[0]] + memory[-12:]
-            memory = user_memories[session_id]
+/* AI THINKING PULSE */
 
-        response = client.chat.completions.create(model="gpt-4o", messages=memory)
-        ai_text = response.choices[0].message.content
-        memory.append({"role": "assistant", "content": ai_text})
-        # --- END MEMORY LOGIC ---
+@keyframes pulse {
+0% { transform: scale(1); }
+50% { transform: scale(1.08); }
+100% { transform: scale(1); }
+}
 
-        # Generate TTS
-        tts = gTTS(ai_text, lang="en")
-        tts.save(output_path)
+#micBtn.thinking {
+ animation: pulse 1s ease-in-out infinite;
+}
 
-        # Cleanup input files
-        if os.path.exists(input_path): os.remove(input_path)
-        if ext == "webm" and os.path.exists(input_for_whisper): os.remove(input_for_whisper)
+</style>
+</head>
 
-        # Return TTS URL
-        return JSONResponse({"tts_url": f"{HOST_URL}/get_audio/{file_id}"})
+<body>
 
-    # --- AUDIO RETRIEVAL ---
-    @app.get("/get_audio/{file_id}")
-    async def get_audio(file_id: str):
-        file_path = os.path.join(tempfile.gettempdir(), f"{file_id}.mp3")
-        if os.path.exists(file_path):
-            return FileResponse(file_path, media_type="audio/mpeg")
-        return JSONResponse({"error": "Audio not found"}, status_code=404)
+<a href="/" id="homeBtn">Home</a>
+
+<canvas id="visualizer"></canvas>
+
+<div id="micBtn">
+<svg class="svgIcon" viewBox="0 0 24 24">
+<path d="M12 14a3 3 0 003-3V5a3 3 0 10-6 0v6a3 3 0 003 3zm5-3a1 1 0 10-2 0 3 3 0
+01-6 0 1 1 0 10-2 0 5 5 0 004 4.9V19H9a1 1 0 000 2h6a1 1 0 000-2h-2v-3.1A5 5 0 0017 11z"/>
+</svg>
+</div>
+
+<script>
+const canvas = document.getElementById("visualizer");
+const ctx = canvas.getContext("2d");
+const micBtn = document.getElementById("micBtn");
+
+let audioCtx, analyser, dataArray, mediaRecorder, audioChunks=[];
+let state="idle", pressStartTime=0;
+let currentAudio=null;
+
+function resizeCanvas(){
+ canvas.width=canvas.offsetWidth;
+ canvas.height=canvas.offsetHeight;
+}
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
+
+async function initAudio(){
+ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+ if(audioCtx.state==="suspended") await audioCtx.resume();
+}
+
+function drawFlatLine(){
+ ctx.clearRect(0,0,canvas.width,canvas.height);
+ ctx.lineWidth=2;
+ ctx.strokeStyle="#bbbbbb";
+ ctx.beginPath();
+ ctx.moveTo(0,canvas.height/2);
+ ctx.lineTo(canvas.width,canvas.height/2);
+ ctx.stroke();
+}
+
+function startVisualizer(sourceNode){
+ analyser=audioCtx.createAnalyser();
+ analyser.fftSize=2048;
+ sourceNode.connect(analyser);
+
+ const bufferLength=analyser.fftSize;
+ dataArray=new Uint8Array(bufferLength);
+
+ function draw(){
+  requestAnimationFrame(draw);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  if(state==="idle" || state==="thinking"){
+   drawFlatLine();
+   return;
+  }
+
+  analyser.getByteTimeDomainData(dataArray);
+  ctx.lineWidth=3;
+  ctx.strokeStyle=state==="user" ? "#e74c3c" : "#2ecc71";
+  ctx.beginPath();
+
+  let x=0;
+  const sliceWidth=canvas.width/bufferLength;
+
+  for(let i=0;i<bufferLength;i++){
+   const v=dataArray[i]/128.0;
+   const y=v*canvas.height/2;
+   if(i===0) ctx.moveTo(x,y);
+   else ctx.lineTo(x,y);
+   x+=sliceWidth;
+  }
+
+  ctx.lineTo(canvas.width,canvas.height/2);
+  ctx.stroke();
+ }
+ draw();
+}
+
+/* -------- MIC BUTTON -------- */
+
+micBtn.addEventListener("pointerdown", async()=>{
+ await initAudio();
+ state="user";
+ micBtn.classList.add("active","pressed");
+ pressStartTime=performance.now();
+ audioChunks=[];
+ stopCurrentAudio();
+
+ const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+ const source=audioCtx.createMediaStreamSource(stream);
+ startVisualizer(source);
+
+ mediaRecorder=new MediaRecorder(stream);
+ mediaRecorder.ondataavailable=e=>audioChunks.push(e.data);
+ mediaRecorder.onstop=sendAudio;
+ mediaRecorder.start();
+});
+
+function stopRecording(){
+ const pressDuration=performance.now()-pressStartTime;
+
+ if(mediaRecorder && mediaRecorder.state==="recording")
+  mediaRecorder.stop();
+
+ micBtn.classList.remove("pressed","active");
+
+ if(pressDuration<200){
+  audioChunks=[];
+  state="idle";
+  drawFlatLine();
+  return;
+ }
+
+ state="thinking";
+ micBtn.classList.add("thinking");
+}
+
+micBtn.addEventListener("pointerup", stopRecording);
+micBtn.addEventListener("pointercancel", stopRecording);
+micBtn.addEventListener("pointerleave", stopRecording);
+
+/* -------- SEND AUDIO -------- */
+
+async function sendAudio(){
+ const blob=new Blob(audioChunks,{type:"audio/webm"});
+
+ if(blob.size<1000){
+  state="idle";
+  micBtn.classList.remove("thinking");
+  drawFlatLine();
+  return;
+ }
+
+ const formData=new FormData();
+ formData.append("file",blob,"user.webm");
+
+ try{
+  const response=await fetch("/process_audio",{method:"POST", body:formData});
+  const data=await response.json();
+  if(data.tts_url) playAI(data.tts_url);
+ }catch(e){
+  console.error("Send error:",e);
+  state="idle";
+  micBtn.classList.remove("thinking");
+  drawFlatLine();
+ }
+}
+
+function stopCurrentAudio(){
+ if(currentAudio){
+  currentAudio.pause();
+  currentAudio.src="";
+  currentAudio.load();
+  currentAudio=null;
+ }
+}
+
+function playAI(url){
+ state="ai";
+ micBtn.classList.remove("thinking");
+
+ const audio=new Audio(url+"?t="+Date.now());
+ audio.crossOrigin="anonymous";
+
+ const source=audioCtx.createMediaElementSource(audio);
+ startVisualizer(source);
+ source.connect(audioCtx.destination);
+
+ currentAudio=audio;
+
+ audio.onended=()=>{
+  state="idle";
+  drawFlatLine();
+ }
+
+ audio.play();
+}
+
+drawFlatLine();
+</script>
+
+</body>
+</html>
