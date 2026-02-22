@@ -1,26 +1,18 @@
 # backend/module/conversation.py
 import os
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Response, Request
 
 def register_conversation_routes(app: FastAPI, user_memories: dict):
-    @app.get("/conversation")
-    async def conversation_page():
-        try:
-            # Try Render's repo root if available
-            root_dir = os.getenv("REPO_DIR")
-            if not root_dir:
-                # fallback to parent of backend folder
-                root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # Compute the absolute path to frontend/conversation.html
+    current_dir = os.path.dirname(os.path.abspath(__file__))  # backend/module/
+    frontend_dir = os.path.join(current_dir, "..", "frontend")  # backend/frontend
+    html_path = os.path.join(frontend_dir, "conversation.html")
+    html_path = os.path.normpath(html_path)
 
-            # Construct absolute path to conversation.html
-            frontend_path = os.path.join(root_dir, "frontend", "conversation.html")
-
-            if not os.path.exists(frontend_path):
-                raise FileNotFoundError(f"{frontend_path} does not exist!")
-
-            # Serve the HTML file
-            return FileResponse(frontend_path)
-
-        except Exception as e:
-            return {"error": str(e)}
+    @app.get("/conversation", response_class=Response)
+    async def conversation_page(request: Request):
+        if not os.path.exists(html_path):
+            return {"error": f"{html_path} does not exist!"}
+        with open(html_path, "r", encoding="utf-8") as f:
+            html = f.read()
+        return Response(content=html, media_type="text/html")
