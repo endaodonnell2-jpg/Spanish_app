@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from modules.conversation import register_conversation_routes
-from modules.intro import register_intro_routes
+from module.conversation import register_conversation_routes
+from module.intro import register_intro_routes
 import uuid
 
 # --- APP SETUP ---
