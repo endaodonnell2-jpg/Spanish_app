@@ -16,8 +16,8 @@ def register_conversation_routes(app: FastAPI, user_memories: dict):
     @app.get("/conversation", response_class=HTMLResponse)
     async def serve_conversation():
         # Path relative to backend/
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        html_path = os.path.join(current_dir, "frontend", "conversation.html")
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        html_path = os.path.join(current_dir, "conversation.html")
         if os.path.exists(html_path):
             with open(html_path, "r", encoding="utf-8") as f:
                 return f.read()
