@@ -1,10 +1,8 @@
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from modules.conversation import register_conversation_routes
+from modules.intro import register_intro_routes
 import uuid
-
-from modules.intro import router as intro_router
-app.include_router(intro_router)
 
 app = FastAPI()
 
@@ -16,7 +14,6 @@ app.add_middleware(
 )
 
 # --- SHARED MEMORY START ---
-# Memory dictionary keyed by session ID
 user_memories = {}
 # --- SHARED MEMORY END ---
 
@@ -25,11 +22,14 @@ user_memories = {}
 async def add_session_id(request: Request, call_next):
     session_id = request.cookies.get("lucas_session_id")
     if not session_id:
-        session_id = str(uuid.uuid4())  # generate new session
+        session_id = str(uuid.uuid4())
     response: Response = await call_next(request)
     response.set_cookie(key="lucas_session_id", value=session_id, httponly=True)
     return response
 
-# Register conversation module
-#register_conversation_routes(app, user_memories)
+# --- REGISTER MODULES ---
+register_intro_routes(app)
+# register_conversation_routes(app, user_memories)  # uncomment when ready
+
+
 
