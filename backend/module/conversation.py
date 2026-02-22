@@ -2,20 +2,24 @@
 import os
 import uuid
 from fastapi import FastAPI, UploadFile, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 from openai import OpenAI
 from gtts import gTTS
 
 def register_conversation_routes(app: FastAPI, user_memories: dict):
+    # --- OpenAI client with your API key ---
     openai_client = OpenAI(api_key="Lucas14")
 
     @app.get("/conversation")
     async def conversation_page():
-        html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../frontend/conversation.html")
+        html_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "../../frontend/conversation.html"
+        )
         if not os.path.exists(html_path):
             return JSONResponse({"error": "conversation.html not found!"})
         with open(html_path, "r", encoding="utf-8") as f:
-            return f.read()
+            html_content = f.read()
+        return Response(content=html_content, media_type="text/html")
 
     @app.post("/process_audio")
     async def process_audio(request: Request, file: UploadFile):
@@ -33,26 +37,27 @@ def register_conversation_routes(app: FastAPI, user_memories: dict):
             with open(user_audio_path, "wb") as f:
                 f.write(await file.read())
 
-            # --- Convert audio to text using OpenAI (Whisper) ---
-            audio_file = open(user_audio_path, "rb")
-            transcription = openai_client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file
-            )
+            # --- Convert audio to text (Whisper) ---
+            with open(user_audio_path, "rb") as audio_file:
+                transcription = openai_client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file
+                )
             user_text = transcription.text
-            audio_file.close()
 
             # Add user message to memory
             user_memories[session_id].append(f"User: {user_text}")
-            if len(user_memories[session_id]) > 6:  # Keep last 3 exchanges (user + bot)
+            if len(user_memories[session_id]) > 6:  # last 3 exchanges (user + AI)
                 user_memories[session_id] = user_memories[session_id][-6:]
 
             # --- Generate AI reply ---
             prompt = "\n".join(user_memories[session_id]) + "\nAI:"
             completion = openai_client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role":"system","content":"You are a friendly forthcoming person, 30 words max."},
-                          {"role":"user","content":prompt}],
+                messages=[
+                    {"role":"system","content":"You are a friendly forthcoming person, 30 words max."},
+                    {"role":"user","content":prompt}
+                ],
                 max_tokens=100
             )
             ai_text = completion.choices[0].message.content.strip()
